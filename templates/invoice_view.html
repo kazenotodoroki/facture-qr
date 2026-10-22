@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% set W = 'Devis' if Q else 'Facture' %}
+{% block title %}{{ W }} {{ inv.number }}{% endblock %}
+{% block content %}
+{% set late = (not Q) and inv.status=='envoyée' and inv.due_date < today %}
+{% set expired = Q and inv.status in ('brouillon','envoyé') and inv.valid_until and inv.valid_until < today %}
+<div class="head">
+  <div>
+    <div class="row"><h1>{{ W }} {{ inv.number }}</h1>
+      <span class="badge {{ 'late' if late else ('expired' if expired else inv.status) }}">{{ 'En retard' if late else ('Expiré' if expired else ST[inv.status]) }}</span></div>
+    <div class="sub">{{ client.name }}{% if inv.event_name %} · {{ inv.event_name }}{% endif %} · {{ inv.issue_date|fdate }}</div>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ url_for('invoice_pdf', iid=inv.id, dl=1) }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>PDF</a>
+    <button class="btn primary" onclick="openSend()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>{{ 'Renvoyer' if inv.sent_at else 'Envoyer' }} par e-mail</button>
+  </div>
+</div>
+
+<div class="grid" style="grid-template-columns:minmax(0,1fr) 330px;align-items:start">
+  <div class="pdfwrap"><iframe src="{{ url_for('invoice_pdf', iid=inv.id) }}#view=FitH&toolbar=0"></iframe></div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="stat"><div class="k">Total</div><div class="v num"><small>CHF</small>{{ inv.total|chf }}</div></div>
+      <dl class="kv" style="margin:18px 0 0">
+        {% if Q %}<dt>Valable jusqu'au</dt><dd>{{ inv.valid_until|fdate }}{% if expired %} <span class="muted">(expiré)</span>{% endif %}</dd>
+        {% else %}<dt>Échéance</dt><dd>{{ inv.due_date|fdate }}{% if not inv.show_due %} <span class="muted">(masquée)</span>{% endif %}</dd>{% endif %}
+        {% set hl = lines|selectattr('kind', 'equalto', 'hours')|list %}{% set fl = lines|selectattr('kind', 'equalto', 'flat')|list %}
+        <dt>Contenu</dt><dd>{% if hl %}{{ (hl|sum(attribute='quantity'))|round(2)|fnum }} h{% endif %}{% if hl and fl %} + {% endif %}{% if fl %}{{ fl|length }} forfait{{ 's' if fl|length > 1 }} / location{{ 's' if fl|length > 1 }}{% endif %}</dd>
+        {% if inv.event_name %}<dt>Événement</dt><dd>{{ inv.event_name }}{% if inv.event_date %}<br><span class="muted">{{ inv.event_date|fdate }} {{ inv.event_place }}</span>{% endif %}</dd>{% endif %}
+        {% if not Q %}<dt>Référence</dt><dd style="font-size:12.5px;font-family:ui-monospace,monospace">{{ inv.reference|fref }}</dd>{% endif %}
+        <dt>Envoyé{{ '' if Q else 'e' }}</dt><dd>{{ inv.sent_at|fdate if inv.sent_at else '—' }}{% if inv.sent_at %}<br><span class="muted" style="font-size:12.5px">{{ inv.sent_at[11:] }} · {{ inv.sent_to }}</span>{% endif %}</dd>
+        {% if inv.paid_at %}<dt>Payée le</dt><dd>{{ inv.paid_at|fdate }}</dd>{% endif %}
+      </dl>
+    </div>
+
+    {% if Q %}
+    <div class="card">
+      {% if links.invoice %}
+      <h2>Facturé</h2>
+      <a class="link-card" href="{{ url_for('invoice_view', iid=links.invoice.id) }}"><span>Facture <b>{{ links.invoice.number }}</b></span><span>→</span></a>
+      {% else %}
+      <h2>Accepté par le client ?</h2>
+      <p class="muted" style="margin-top:0">Crée la facture avec les mêmes lignes ; vous pourrez ajuster les heures réelles.</p>
+      <form method="post" action="{{ url_for('quote_to_invoice', iid=inv.id) }}"><button class="btn primary" style="width:100%">Transformer en facture →</button></form>
+      {% endif %}
+    </div>
+    {% elif links.quote %}
+    <div class="card"><h2>Issue du devis</h2>
+      <a class="link-card" href="{{ url_for('invoice_view', iid=links.quote.id) }}"><span>Devis <b>{{ links.quote.number }}</b></span><span>→</span></a></div>
+    {% endif %}
+
+    <div class="card">
+      <h2>Statut</h2>
+      <form method="post" action="{{ url_for('invoice_status', iid=inv.id) }}" class="grid" style="gap:10px">
+        {% if not Q and inv.status != 'payée' %}
+        <div class="row" style="gap:8px"><input type="date" name="paid_at" value="{{ today }}" style="flex:1">
+          <button class="btn brand" name="status" value="payée" style="background:var(--ok);border-color:var(--ok)">Marquer payée</button></div>
+        {% endif %}
+        <div class="row" style="gap:6px">
+          {% for k, v in ST.items() if k != inv.status and k != 'payée' %}
+          <button class="btn sm" name="status" value="{{ k }}">→ {{ v }}</button>{% endfor %}
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Actions</h2>
+      <div class="grid" style="gap:8px">
+        <a class="btn" href="{{ url_for('invoice_form', iid=inv.id) }}">Modifier</a>
+        <form method="post" action="{{ url_for('invoice_duplicate', iid=inv.id) }}"><button class="btn" style="width:100%">Dupliquer</button></form>
+        <form method="post" action="{{ url_for('invoice_regen', iid=inv.id) }}"><button class="btn" style="width:100%" title="Applique le logo, les couleurs et coordonnées actuels">Régénérer le PDF</button></form>
+        <button type="button" class="btn danger" style="width:100%" onclick="document.getElementById('del').showModal()">Supprimer {{ 'le devis' if Q else 'la facture' }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<dialog id="del" style="width:min(440px,94vw)">
+  <form method="post" action="{{ url_for('invoice_delete', iid=inv.id) }}" style="padding:24px">
+    <h2>Supprimer {{ 'le devis' if Q else 'la facture' }} {{ inv.number }} ?</h2>
+    {% if Q %}
+    <p class="muted" style="margin-top:0">Le devis et son PDF seront effacés définitivement, y compris de la sauvegarde.
+    {% if links.invoice %}La facture {{ links.invoice.number }} créée depuis ce devis est conservée.{% endif %}</p>
+    {% else %}
+    <p class="muted" style="margin-top:0">La facture et son PDF seront effacés définitivement, y compris de la sauvegarde.
+    {% if inv.status != 'brouillon' %}Elle a déjà été {{ 'payée' if inv.status=='payée' else 'envoyée' }} : pour la comptabilité, « Annulée » garde une trace.{% endif %}</p>
+    {% endif %}
+    {% if inv.status != 'brouillon' %}
+    <div class="field"><label>Pour confirmer, tapez le numéro <b>{{ inv.number }}</b></label>
+      <input type="text" name="confirm" autocomplete="off" oninput="document.getElementById('delok').disabled = this.value.trim() !== '{{ inv.number }}'"></div>
+    {% endif %}
+    <div class="row" style="justify-content:flex-end">
+      <button type="button" class="btn ghost" onclick="document.getElementById('del').close()">Annuler</button>
+      {% if not Q and inv.status != 'brouillon' and inv.status != 'annulée' %}
+      <button class="btn" formaction="{{ url_for('invoice_status', iid=inv.id) }}" name="status" value="annulée">Plutôt annuler</button>{% endif %}
+      <button class="btn primary" id="delok" style="background:var(--err);border-color:var(--err)" {{ 'disabled' if inv.status != 'brouillon' }}>Supprimer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="send">
+  <form method="post" action="{{ url_for('invoice_send', iid=inv.id) }}" class="dlg">
+    <div class="form">
+      <h2>Envoyer {{ 'le devis' if Q else 'la facture' }}</h2>
+      <div class="field"><label>À</label><input type="text" name="to" value="{{ live_client.email or client.email }}" required placeholder="client@exemple.ch"></div>
+      <div class="field"><label>Copie</label><input type="text" name="cc" value="{{ live_client.cc_email or '' }}"></div>
+      <div class="field"><label>Objet</label><input type="text" name="subject" value="{{ subject }}"></div>
+      <div class="field"><label>Message</label><textarea name="message" id="msg" style="min-height:170px">{{ message }}</textarea></div>
+      <div class="hint" style="margin-bottom:16px">PDF joint : {{ inv.pdf_path.split('/')[-1].split('\\')[-1] }}</div>
+      {% if not S.smtp_host %}<div class="flash warn">Serveur e-mail non configuré. <a href="{{ url_for('settings', tab='mail') }}">Paramètres →</a></div>{% endif %}
+      <div class="row" style="justify-content:flex-end">
+        <button type="button" class="btn ghost" onclick="document.getElementById('send').close()">Annuler</button>
+        <button class="btn primary">Envoyer</button>
+      </div>
+    </div>
+    <div class="pv"><iframe class="preview" id="pv" src="{{ url_for('invoice_mail_preview', iid=inv.id) }}"></iframe></div>
+  </form>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script>
+const dlg = document.getElementById('send');
+function openSend(){ dlg.showModal(); }
+let t; document.getElementById('msg').addEventListener('input', e => {
+  clearTimeout(t); t = setTimeout(() => {
+    document.getElementById('pv').src = '{{ url_for('invoice_mail_preview', iid=inv.id) }}?message=' + encodeURIComponent(e.target.value);
+  }, 350);
+});
+{% if open_send %}openSend();{% endif %}
+</script>
+{% endblock %}

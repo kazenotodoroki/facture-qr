@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name if client else 'Nouveau client' }}{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>{{ client.name if client else 'Nouveau client' }}</h1>
+    <div class="sub">Coordonnées et tarifs horaires propres à ce client</div></div>
+  {% if client %}
+  <div class="row">
+    <form method="post" action="{{ url_for('client_archive', cid=client.id) }}"><button class="btn ghost">{{ 'Désarchiver' if client.archived else 'Archiver' }}</button></form>
+    <a class="btn primary" href="{{ url_for('invoice_form', client=client.id) }}">Facturer ce client</a>
+  </div>
+  {% endif %}
+</div>
+<form method="post">
+<input type="hidden" name="next" value="{{ nxt }}">
+<div class="grid g2">
+  <div class="card">
+    <h2>Coordonnées</h2>
+    <div class="field"><label>Nom / raison sociale *</label><input type="text" name="name" required value="{{ client.name if client }}" autofocus></div>
+    <div class="field"><label>Contact / à l'attention de</label><input type="text" name="contact" value="{{ client.contact if client }}"></div>
+    <div class="grid" style="grid-template-columns:1fr 110px;gap:12px">
+      <div class="field"><label>Rue</label><input type="text" name="street" value="{{ client.street if client }}"></div>
+      <div class="field"><label>N°</label><input type="text" name="house_num" value="{{ client.house_num if client }}"></div>
+    </div>
+    <div class="grid" style="grid-template-columns:110px 1fr 80px;gap:12px">
+      <div class="field"><label>NPA</label><input type="text" name="pcode" value="{{ client.pcode if client }}"></div>
+      <div class="field"><label>Localité</label><input type="text" name="city" value="{{ client.city if client }}"></div>
+      <div class="field"><label>Pays</label><input type="text" name="country" maxlength="2" value="{{ client.country if client else 'CH' }}"></div>
+    </div>
+    <div class="hint" style="margin:-6px 0 14px">NPA + localité sont nécessaires pour afficher le débiteur sur le bulletin QR.</div>
+    <div class="field"><label>E-mail de facturation</label><input type="email" name="email" value="{{ client.email if client }}"></div>
+    <div class="field"><label>Copie (CC)</label><input type="text" name="cc_email" value="{{ client.cc_email if client }}" placeholder="optionnel, séparés par des virgules"></div>
+    <div class="field" style="margin:0"><label>Notes internes</label><textarea name="notes" style="min-height:60px">{{ client.notes if client }}</textarea></div>
+  </div>
+  <div class="card">
+    <h2>Tarifs horaires</h2>
+    <div class="hint" style="margin:-8px 0 16px">Un tarif par type de prestation : montage, régie, démontage, technicien·ne son…</div>
+    <div class="rates-ed" id="rates">
+      <div class="rate muted" style="font-size:12px;font-weight:550"><span>PRESTATION</span><span>CHF / HEURE</span><span></span></div>
+      {% for r in rates %}
+      <div class="rate"><input type="text" name="rate_label" value="{{ r.label }}"><input type="text" inputmode="decimal" name="rate_value" value="{{ '%.2f'|format(r.rate) }}"><button type="button" class="x" onclick="this.parentNode.remove()">×</button></div>
+      {% endfor %}
+    </div>
+    <button type="button" class="btn sm" onclick="addRate()">+ Ajouter un tarif</button>
+    <div class="chips" style="margin-top:16px"><span class="muted" style="font-size:13px;padding-top:6px">Suggestions :</span>
+      {% for s in ['Montage','Régie','Démontage','Régie son','Régie lumière','Répétition'] %}<button type="button" class="chip" onclick="addRate('{{ s }}')">{{ s }}</button>{% endfor %}
+    </div>
+  </div>
+</div>
+<div class="row" style="margin-top:20px;justify-content:flex-end">
+  <a class="btn ghost" href="{{ url_for('clients') }}">Annuler</a>
+  <button class="btn primary">Enregistrer le client</button>
+</div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+function addRate(label,nofocus){
+  const d=document.createElement('div');d.className='rate';
+  d.innerHTML='<input type="text" name="rate_label" placeholder="ex. Montage"><input type="text" inputmode="decimal" name="rate_value" placeholder="0.00"><button type="button" class="x" onclick="this.parentNode.remove()">×</button>';
+  document.getElementById('rates').appendChild(d);
+  if(label){d.children[0].value=label;d.children[1].focus()}else if(!nofocus)d.children[0].focus();
+}
+{% if not rates %}addRate(null,true);{% endif %}
+</script>
+{% endblock %}

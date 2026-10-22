@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+{% set W = 'Devis' if Q else 'Facture' %}
+{% block title %}{{ 'Modifier ' ~ inv.number if inv else ('Nouveau devis' if Q else 'Nouvelle facture') }}{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>{{ W ~ ' ' ~ inv.number if inv else ('Nouveau devis' if Q else 'Nouvelle facture') }}</h1>
+    <div class="sub">Client → événement → heures, forfait / location ou les deux. {{ 'Le PDF du devis' if Q else 'Le PDF QR' }} est généré à l'enregistrement.</div></div>
+</div>
+<form method="post" id="f" autocomplete="off">
+<div class="card">
+
+  <div class="step"><div class="n">1</div><div class="b">
+    <h3>Client</h3>
+    <div class="grid" style="grid-template-columns:1fr 170px {{ '170px ' if Q }}170px;gap:14px;align-items:end">
+      <div class="field combo" style="margin:0">
+        <input type="hidden" name="client_id" id="client" value="{{ inv.client_id if inv else (preset_client or '') }}">
+        <input type="text" id="client-q" placeholder="Rechercher un client (nom, ville, contact…)" autocomplete="off">
+        <div class="combo-list hidden" id="client-list"></div>
+      </div>
+      <div class="field" style="margin:0"><label>Date {{ 'du devis' if Q else 'de facture' }}</label><input type="date" name="issue_date" id="issue" value="{{ inv.issue_date if inv else today }}"></div>
+      {% if Q %}<div class="field" style="margin:0"><label>Valable jusqu'au</label><input type="date" name="valid_until" id="valid" value="{{ inv.valid_until if inv else '' }}" required></div>{% endif %}
+      <div class="field" style="margin:0"><label>N° {{ 'du devis' if Q else 'de facture' }}</label><input type="text" name="number" id="number" maxlength="30" value="{{ inv.number if inv else '' }}" placeholder="Automatique"></div>
+    </div>
+    <div class="hint" id="client-info"></div>
+    <div class="hint" id="date-hint"></div>
+    {% if Q %}<div class="row" style="gap:6px;margin-top:8px"><span class="hint" style="margin:0">Validité :</span>
+      {% for d in [15, 30, 60, 90] %}<button type="button" class="chip" onclick="setValidity({{ d }})">{{ d }} jours</button>{% endfor %}</div>{% endif %}
+    {% if not clients %}<div class="flash warn" style="margin:12px 0 0">Aucun client. <a href="{{ url_for('client_edit', next=url_for('quote_form') if Q else url_for('invoice_form')) }}">Créer un client →</a></div>{% endif %}
+  </div></div>
+
+  <div class="step"><div class="n">2</div><div class="b">
+    <h3>Événement</h3>
+    <div class="seg">
+      <input type="radio" name="has_event" id="ev0" value="0" {{ 'checked' if not (inv and inv.event_name) }}><label for="ev0">Sans événement</label>
+      <input type="radio" name="has_event" id="ev1" value="1" {{ 'checked' if inv and inv.event_name }}><label for="ev1">Pour un événement / spectacle</label>
+    </div>
+    <div id="event-fields" class="grid" style="grid-template-columns:2fr 1fr 1.4fr;gap:14px;margin-top:16px">
+      <div class="field" style="margin:0"><label>Nom de l'événement</label><input type="text" name="event_name" list="events" value="{{ inv.event_name if inv }}" placeholder="ex. Le Songe d'une nuit d'été"></div>
+      <div class="field" style="margin:0"><label>Date</label><input type="date" name="event_date" value="{{ inv.event_date if inv }}"></div>
+      <div class="field" style="margin:0"><label>Lieu (optionnel)</label><input type="text" name="event_place" value="{{ inv.event_place if inv }}"></div>
+      <datalist id="events"></datalist>
+    </div>
+  </div></div>
+
+  <div class="step"><div class="n">3</div><div class="b">
+    <h3>Prestations</h3>
+    <div class="seg">
+      <input type="radio" name="mode" id="m-h" value="hours" checked><label for="m-h">Heures</label>
+      <input type="radio" name="mode" id="m-f" value="flat"><label for="m-f">Forfait / location</label>
+      <input type="radio" name="mode" id="m-x" value="mixed"><label for="m-x">Heures + forfait / location</label>
+    </div>
+
+    <div id="hours" style="margin-top:16px">
+      <div class="sec-title">Heures</div>
+      <table class="lines">
+        <thead><tr><th style="width:142px">Date</th><th style="width:96px">Début</th><th style="width:96px">Fin</th><th style="width:72px">Heures</th><th style="width:165px">Prestation</th><th>Détail (optionnel)</th><th style="width:88px">Tarif CHF</th><th style="width:92px" class="r">Montant</th><th style="width:28px"></th></tr></thead>
+        <tbody id="h-body"></tbody>
+      </table>
+      <div class="row"><button type="button" class="btn sm" onclick="addH()">+ Ajouter une ligne</button>
+        <span class="hint" id="rates-hint" style="margin:0"></span></div>
+      <div class="hint">Les heures se calculent depuis le début et la fin (passage de minuit géré). Vous pouvez corriger le nombre d'heures, par ex. pour déduire une pause.</div>
+    </div>
+
+    <div id="flat" style="margin-top:22px">
+      <div class="sec-title">Forfaits et locations</div>
+      <table class="lines">
+        <thead><tr><th style="width:280px">Libellé</th><th>Détail (optionnel)</th><th style="width:80px">Qté</th><th style="width:110px">Prix unit. CHF</th><th style="width:92px" class="r">Montant</th><th style="width:28px"></th></tr></thead>
+        <tbody id="f-body"></tbody>
+      </table>
+      <datalist id="flat-labels"></datalist>
+      <div class="row"><button type="button" class="btn sm" onclick="addF()">+ Ajouter un forfait / une location</button>
+        <span class="hint" style="margin:0">ex. Location console lumière · Qté 3 · Prix 120.– (par jour)</span></div>
+    </div>
+
+    <div class="totals">
+      <div><span class="muted">Sous-total</span><span id="t-sub">0.00</span></div>
+      {% if S.show_vat == '1' %}<div><span class="muted">TVA {{ S.vat_rate }} %</span><span id="t-vat">0.00</span></div>{% endif %}
+      <div class="grand"><span>Total CHF</span><span id="t-tot">0.00</span></div>
+    </div>
+  </div></div>
+
+  <div class="step"><div class="n">4</div><div class="b">
+    <h3>Présentation</h3>
+    {% set terms_on = (inv.show_terms if inv else S.show_payment_terms == '1') %}
+    {% set due_on = (inv.show_due if inv else S.show_due_date == '1') %}
+    {% set ts_on = (inv.show_timesheet if inv else S.default_timesheet == '1') %}
+    {% set grouped = (inv.summary_mode if inv else S.default_summary_mode) == 'grouped' %}
+    <div class="grid" style="gap:10px">
+      {% if Q %}
+      <input type="hidden" name="show_due" value="{{ 1 if due_on else 0 }}">
+      <label class="opt"><input type="checkbox" name="show_terms" value="1" {{ 'checked' if (inv.show_terms if inv else True) }}>
+        <span><b>Afficher les conditions du devis</b><br><span class="muted">{{ S.quote_terms_text|replace('{validite}', 'JJ.MM.AAAA')|replace('{jours}', S.payment_days) }}</span></span></label>
+      {% else %}
+      <label class="opt"><input type="checkbox" name="show_due" value="1" {{ 'checked' if due_on }}>
+        <span><b>Afficher l'échéance</b><br><span class="muted">Date limite de paiement ({{ S.payment_days }} jours) sur la facture et dans l'e-mail.</span></span></label>
+      <label class="opt"><input type="checkbox" name="show_terms" value="1" {{ 'checked' if terms_on }}>
+        <span><b>Afficher les modalités de paiement</b><br><span class="muted">{{ S.payment_terms_text|replace('{jours}', S.payment_days)|replace('{echeance}', 'JJ.MM.AAAA') }} <i>(la date est retirée si l'échéance est masquée)</i></span></span></label>
+      {% endif %}
+      <div class="hours-only grid" style="gap:10px">
+        <label class="opt"><input type="checkbox" name="show_timesheet" value="1" {{ 'checked' if ts_on }}>
+          <span><b>{{ 'Joindre le détail des heures estimées en annexe' if Q else 'Ajouter le décompte des horaires en annexe' }}</b><br><span class="muted">Page séparée avec date, début, fin et heures de chaque ligne, plus un récapitulatif par prestation.</span></span></label>
+        <div class="row" style="gap:12px;margin-top:4px"><span class="muted">Sur la facture :</span>
+          <div class="seg">
+            <input type="radio" name="summary_mode" id="sm-l" value="lines" {{ 'checked' if not grouped }}><label for="sm-l">Une ligne par jour</label>
+            <input type="radio" name="summary_mode" id="sm-g" value="grouped" {{ 'checked' if grouped }}><label for="sm-g">Regroupé par prestation</label>
+          </div></div>
+      </div>
+    </div>
+  </div></div>
+
+  <div class="step"><div class="n">5</div><div class="b">
+    <h3>Remarque <span class="muted" style="font-weight:400">(optionnel, imprimée sur la facture)</span></h3>
+    <textarea name="notes" style="min-height:60px" placeholder="ex. Selon devis du 2 octobre.">{{ inv.notes if inv }}</textarea>
+  </div></div>
+</div>
+
+<div class="row" style="margin-top:20px;justify-content:flex-end">
+  <a class="btn ghost" href="{{ url_for('invoice_view', iid=inv.id) if inv else url_for('invoices') }}">Annuler</a>
+  <button class="btn" name="then" value="view">Enregistrer</button>
+  <button class="btn primary" name="then" value="send">Enregistrer et envoyer →</button>
+</div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const VAT = {{ (S.vat_rate|float) if S.show_vat == '1' else 0 }}, ROUND5 = {{ 'true' if S.round_5ct=='1' else 'false' }};
+const existing = {{ lines|tojson }};
+const CLIENTS = {{ clients|tojson }};
+let RATES = [];
+const fmt = n => (Math.round(n*100)/100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+const num = v => parseFloat(String(v||'').replace(/'/g,'').replace(',', '.')) || 0;
+const $ = s => document.querySelector(s);
+
+function rateOptions(sel){
+  let o = RATES.map(r => `<option value="${r.label}" data-rate="${r.rate}" ${r.label===sel?'selected':''}>${r.label}</option>`).join('');
+  if (sel && !RATES.some(r => r.label===sel)) o = `<option selected>${sel}</option>` + o;
+  return o + '<option value="__other">Autre…</option>';
+}
+function dur(a, b){
+  if (!a || !b) return null;
+  const [h1, m1] = a.split(':').map(Number), [h2, m2] = b.split(':').map(Number);
+  let d = (h2*60 + m2) - (h1*60 + m1); if (d <= 0) d += 1440;
+  return Math.round(d / 60 * 100) / 100;
+}
+function prev(name){
+  const el = [...document.querySelectorAll(`#h-body [name=${name}]`)].pop();
+  return el ? el.value : '';
+}
+function lastDate(){
+  const d = [...document.querySelectorAll('#h-body [name=h_date]')].pop();
+  if (!d || !d.value) return '{{ today }}';
+  const x = new Date(d.value); x.setDate(x.getDate()+1); return x.toISOString().slice(0,10);
+}
+function addH(l){
+  l = l || {};
+  const tr = document.createElement('tr');
+  const label = l.rate_label || (RATES[0] && RATES[0].label) || '';
+  tr.innerHTML = `
+    <td><input type="date" name="h_date" value="${l.line_date || lastDate()}"></td>
+    <td><input type="time" name="h_start" value="${l.start_time || prev('h_start')}"></td>
+    <td><input type="time" name="h_end" value="${l.end_time || prev('h_end')}"></td>
+    <td><input type="text" inputmode="decimal" name="h_qty" placeholder="0" value="${l.quantity ?? ''}"></td>
+    <td><select name="h_sel">${rateOptions(label)}</select><input type="text" name="h_label" class="hidden" placeholder="Prestation" value="${label}"></td>
+    <td><input type="text" name="h_desc" placeholder="ex. accroche lumière" value="${(l.description||'').replace(/"/g,'&quot;')}"></td>
+    <td><input type="text" inputmode="decimal" name="h_rate" value="${l.unit_price ?? (RATES[0] ? RATES[0].rate : '')}"></td>
+    <td class="amt">0.00</td>
+    <td><button type="button" class="x" title="Supprimer">×</button></td>`;
+  const sel = tr.querySelector('[name=h_sel]'), lab = tr.querySelector('[name=h_label]'), rate = tr.querySelector('[name=h_rate]');
+  if (!RATES.length) { sel.classList.add('hidden'); lab.classList.remove('hidden'); }
+  sel.onchange = () => {
+    if (sel.value === '__other') { sel.classList.add('hidden'); lab.classList.remove('hidden'); lab.value=''; lab.focus(); return; }
+    lab.value = sel.value; rate.value = sel.selectedOptions[0].dataset.rate || rate.value; calc();
+  };
+  const st = tr.querySelector('[name=h_start]'), en = tr.querySelector('[name=h_end]'), qty = tr.querySelector('[name=h_qty]');
+  const fromTimes = () => { const h = dur(st.value, en.value); if (h !== null) { qty.value = h; calc(); } };
+  st.onchange = fromTimes; en.onchange = fromTimes;
+  if (!l.quantity) fromTimes();
+  tr.querySelector('.x').onclick = () => { tr.remove(); calc(); };
+  $('#h-body').appendChild(tr);
+  calc();
+}
+const q = v => String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+function addF(l){
+  l = l || {};
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" name="f_label" list="flat-labels" placeholder="ex. Location console lumière" value="${q(l.rate_label)}"></td>
+    <td><input type="text" name="f_desc" placeholder="ex. du 15 au 17.10" value="${q(l.description)}"></td>
+    <td><input type="text" inputmode="decimal" name="f_qty" value="${l.quantity ?? 1}"></td>
+    <td><input type="text" inputmode="decimal" name="f_price" placeholder="0.00" value="${l.unit_price ?? ''}"></td>
+    <td class="amt">0.00</td>
+    <td><button type="button" class="x">×</button></td>`;
+  tr.querySelector('.x').onclick = () => { tr.remove(); calc(); };
+  $('#f-body').appendChild(tr);
+  calc();
+}
+const MODE = () => document.querySelector('[name=mode]:checked').value;
+function calc(){
+  const m = MODE();
+  let sub = 0;
+  if (m !== 'flat') document.querySelectorAll('#h-body tr').forEach(tr => {
+    const a = num(tr.querySelector('[name=h_qty]').value) * num(tr.querySelector('[name=h_rate]').value);
+    tr.querySelector('.amt').textContent = fmt(a); sub += a;
+  });
+  if (m !== 'hours') document.querySelectorAll('#f-body tr').forEach(tr => {
+    const qv = tr.querySelector('[name=f_qty]').value;
+    const a = (qv === '' ? 1 : num(qv)) * num(tr.querySelector('[name=f_price]').value);
+    tr.querySelector('.amt').textContent = fmt(a); sub += a;
+  });
+  const vat = Math.round(sub*VAT)/100;
+  let tot = sub + vat; if (ROUND5) tot = Math.round(tot*20)/20;
+  $('#t-sub').textContent = fmt(sub); if ($('#t-vat')) $('#t-vat').textContent = fmt(vat); $('#t-tot').textContent = fmt(tot);
+}
+function syncUI(){
+  $('#event-fields').classList.toggle('hidden', !$('#ev1').checked);
+  const m = MODE(), hours = m !== 'flat', flat = m !== 'hours';
+  $('#hours').classList.toggle('hidden', !hours); $('#flat').classList.toggle('hidden', !flat);
+  document.querySelectorAll('.sec-title').forEach(e => e.classList.toggle('hidden', m !== 'mixed'));
+  document.querySelectorAll('.hours-only').forEach(e => e.classList.toggle('hidden', !hours));
+  // les champs masqués ne sont pas envoyés
+  document.querySelectorAll('#hours input, #hours select').forEach(i => i.disabled = !hours);
+  document.querySelectorAll('#flat input').forEach(i => i.disabled = !flat);
+  if (hours && !$('#h-body').children.length) addH();
+  if (flat && !$('#f-body').children.length) addF();
+  calc();
+}
+async function loadClient(first){
+  const id = $('#client').value;
+  if (!id) { RATES = []; $('#client-info').textContent=''; return; }
+  const cc = CLIENTS.find(x => String(x.id) === String(id)); if (cc) $('#client-q').value = cc.name;
+  const r = await fetch('/api/clients/' + id).then(r => r.json());
+  RATES = r.rates;
+  const c = r.client;
+  $('#client-info').innerHTML = [c.contact, [c.street, c.house_num].join(' ').trim(), [c.pcode, c.city].join(' ').trim(), c.email].filter(Boolean).join(' · ')
+     + ` · <a href="/clients/${c.id}?next=${encodeURIComponent(location.pathname)}">modifier</a>`;
+  $('#events').innerHTML = r.events.map(e => `<option value="${q(e)}">`).join('');
+  $('#flat-labels').innerHTML = (r.flat_labels || []).map(e => `<option value="${q(e)}">`).join('');
+  $('#rates-hint').innerHTML = RATES.length ? 'Tarifs : ' + RATES.map(x => `${x.label} ${fmt(x.rate)}`).join(' · ')
+     : `Aucun tarif pour ce client — <a href="/clients/${c.id}?next=${encodeURIComponent(location.pathname)}">en ajouter</a>`;
+  if (!first) { $('#h-body').innerHTML=''; }
+  if (!$('#h-body').children.length && MODE() !== 'flat') addH();
+  else document.querySelectorAll('#h-body [name=h_sel]').forEach(s => {
+    const cur = s.parentNode.querySelector('[name=h_label]').value; s.innerHTML = rateOptions(cur);
+  });
+  syncUI();
+}
+document.addEventListener('input', calc);
+document.querySelectorAll('[name=has_event],[name=mode]').forEach(r => r.onchange = syncUI);
+// ---- recherche client ----
+const cq = $('#client-q'), cl = $('#client-list');
+let hi = 0, shown = [];
+const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+function renderList(){
+  const t = norm(cq.value).trim();
+  shown = CLIENTS.filter(c => !t || [c.name, c.city, c.contact, c.email].some(v => norm(v).includes(t))).slice(0, 30);
+  hi = Math.min(hi, Math.max(shown.length - 1, 0));
+  cl.innerHTML = shown.length ? shown.map((c, i) => `<div class="combo-item ${i===hi?'on':''}" data-i="${i}"><b>${q(c.name)}</b><span>${q([c.city, c.contact].filter(Boolean).join(' · '))}</span></div>`).join('')
+    : `<div class="combo-empty">Aucun client trouvé · <a href="/clients/nouveau?next=${encodeURIComponent(location.pathname)}">Créer « ${q(cq.value)} »</a></div>`;
+  cl.classList.remove('hidden');
+}
+function pick(c){
+  $('#client').value = c.id; cq.value = c.name; cl.classList.add('hidden'); loadClient(false);
+}
+cq.addEventListener('focus', () => { cq.select(); hi = 0; renderList(); });
+cq.addEventListener('input', () => { hi = 0; renderList(); });
+cq.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { hi = Math.min(hi + 1, shown.length - 1); renderList(); e.preventDefault(); }
+  else if (e.key === 'ArrowUp') { hi = Math.max(hi - 1, 0); renderList(); e.preventDefault(); }
+  else if (e.key === 'Enter') { e.preventDefault(); if (shown[hi]) pick(shown[hi]); }
+  else if (e.key === 'Escape') cl.classList.add('hidden');
+});
+cl.addEventListener('mousedown', e => { const it = e.target.closest('.combo-item'); if (it) { e.preventDefault(); pick(shown[+it.dataset.i]); } });
+cq.addEventListener('blur', () => setTimeout(() => {
+  cl.classList.add('hidden');
+  const cur = CLIENTS.find(x => String(x.id) === String($('#client').value));
+  cq.value = cur ? cur.name : '';
+}, 120));
+$('#f').addEventListener('submit', e => { if (!$('#client').value) { e.preventDefault(); cq.focus(); cq.classList.add('invalid'); } });
+
+// ---- date antérieure et numéro ----
+const Q = {{ 'true' if Q else 'false' }};
+const iso = dt => new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+let validTouched = {{ 'true' if inv else 'false' }}, validDays = {{ validity_days }};
+function setValidity(n){
+  validDays = n; validTouched = false;
+  const d = new Date($('#issue').value || '{{ today }}'); d.setDate(d.getDate() + n);
+  $('#valid').value = iso(d); dateChanged();
+}
+if (Q) $('#valid').addEventListener('change', () => { validTouched = true; dateChanged(); });
+async function dateChanged(){
+  const d = $('#issue').value;
+  const days = {{ payment_days }};
+  let msg = '';
+  if (Q) {
+    if (!validTouched || !$('#valid').value) { const v = new Date(d || '{{ today }}'); v.setDate(v.getDate() + validDays); $('#valid').value = iso(v); }
+    const v = $('#valid').value;
+    if (v && d) {
+      const n = Math.round((new Date(v) - new Date(d)) / 86400000);
+      msg = n < 0 ? 'La validité doit être postérieure à la date du devis.' : `Valable ${n} jour${n > 1 ? 's' : ''}` + (v < '{{ today }}' ? ' · déjà expiré' : '');
+    }
+  } else if (d && d < '{{ today }}') {
+    const due = new Date(d); due.setDate(due.getDate() + days);
+    const dd = due.toISOString().slice(0,10).split('-').reverse().join('.');
+    msg = `Facture antidatée · échéance calculée depuis cette date : ${dd}` + (due.toISOString().slice(0,10) < '{{ today }}' ? ' (déjà passée)' : '');
+  }
+  $('#date-hint').textContent = msg;
+  {% if not inv %}
+  try { const r = await fetch('/api/prochain-numero?date=' + d + (Q ? '&doc=quote' : '')).then(r => r.json()); $('#number').placeholder = r.hint; } catch(e) {}
+  {% endif %}
+}
+$('#issue').addEventListener('change', dateChanged);
+let numOk = true, nt;
+$('#number').addEventListener('input', () => {
+  clearTimeout(nt); nt = setTimeout(async () => {
+    const v = $('#number').value.trim();
+    const r = await fetch(`/api/numero-libre?n=${encodeURIComponent(v)}{{ '&id=' ~ inv.id if inv else '' }}`).then(r => r.json());
+    numOk = r.free; $('#number').classList.toggle('invalid', !numOk);
+    $('#date-hint').textContent = numOk ? '' : `Le numéro « ${v} » est déjà utilisé par une autre facture.`;
+    if (numOk) dateChanged();
+  }, 250);
+});
+$('#f').addEventListener('submit', e => { if (!numOk) { e.preventDefault(); $('#number').focus(); } });
+dateChanged();
+
+(async () => {
+  if (existing.length) {
+    const kinds = new Set(existing.map(l => l.kind || 'hours'));
+    const m = kinds.size > 1 ? 'mixed' : (kinds.has('flat') ? 'flat' : 'hours');
+    document.querySelector(`[name=mode][value=${m}]`).checked = true;
+  }
+  if ($('#client').value) await loadClient(true);
+  if (existing.length) {
+    $('#h-body').innerHTML=''; $('#f-body').innerHTML='';
+    existing.forEach(l => (l.kind || 'hours') === 'hours' ? addH(l) : addF(l));
+  }
+  syncUI();
+  if (!$('#client').value) cq.focus();
+})();
+</script>
+{% endblock %}

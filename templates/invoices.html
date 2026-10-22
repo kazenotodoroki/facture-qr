@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Devis' if Q else 'Factures' }}{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>{{ 'Devis' if Q else 'Factures' }}</h1><div class="sub">{{ invoices|length }} {{ 'devis' if Q else ('facture' ~ ('s' if invoices|length > 1 else '')) }} · CHF {{ total|chf }}</div></div>
+  <div class="row">
+    <a class="btn" href="{{ url_for(list_ep, format='csv', **f) }}">Export CSV{{ '' if Q else ' (compta)' }}</a>
+    <a class="btn primary" href="{{ url_for('quote_form') if Q else url_for('invoice_form') }}">+ {{ 'Nouveau devis' if Q else 'Nouvelle facture' }}</a>
+  </div>
+</div>
+<form class="card row" style="padding:14px;margin-bottom:16px;gap:10px" method="get">
+  <input type="text" name="q" value="{{ f.q }}" placeholder="Rechercher n°, client, événement…" style="flex:2;min-width:200px">
+  <select name="client" style="flex:1;min-width:150px" onchange="this.form.submit()"><option value="">Tous les clients</option>
+    {% for c in clients %}<option value="{{ c.id }}" {{ 'selected' if f.client|string == c.id|string }}>{{ c.name }}</option>{% endfor %}</select>
+  <select name="annee" style="width:120px" onchange="this.form.submit()"><option value="">Toutes années</option>
+    {% for y in years %}<option {{ 'selected' if f.annee==y }}>{{ y }}</option>{% endfor %}</select>
+  <select name="statut" style="width:140px" onchange="this.form.submit()"><option value="">Tous statuts</option>
+    {% for k, v in ST.items() %}<option value="{{ k }}" {{ 'selected' if f.statut==k }}>{{ v }}</option>{% endfor %}
+    {% if Q %}<option value="expiré" {{ 'selected' if f.statut=='expiré' }}>Expiré</option>{% endif %}</select>
+  <button class="btn">Filtrer</button>
+  {% if f.q or f.client or f.annee or f.statut %}<a class="btn ghost" href="{{ url_for(list_ep) }}">Effacer</a>{% endif %}
+</form>
+<form method="post" action="{{ url_for('invoices_delete_bulk') }}" id="bulk" class="card" style="padding:8px 10px">
+<input type="hidden" name="back" value="{{ request.full_path }}">
+<div class="bulkbar hidden" id="bulkbar">
+  <span><b id="nsel">0</b> sélectionnée(s)</span>
+  <button type="button" class="btn sm danger" onclick="askBulk()">Supprimer la sélection</button>
+  <button type="button" class="btn sm ghost" onclick="selAll(false)">Désélectionner</button>
+</div>
+{% if invoices %}
+<table class="list">
+  <tr><th style="width:34px"><input type="checkbox" id="all" onclick="selAll(this.checked)" title="Tout sélectionner"></th><th>N°</th><th>Date</th><th>Client</th><th>Événement</th><th>{{ 'Valable jusqu’au' if Q else 'Échéance' }}</th><th>Statut</th><th class="r">Montant</th><th></th></tr>
+  {% for i in invoices %}
+  {% set late = (not Q) and i.status=='envoyée' and i.due_date < today %}
+  {% set expired = Q and i.status in ('brouillon','envoyé') and i.valid_until and i.valid_until < today %}
+  <tr class="click" onclick="location='{{ url_for('invoice_view', iid=i.id) }}'">
+    <td onclick="event.stopPropagation()"><input type="checkbox" name="ids" value="{{ i.id }}" data-n="{{ i.number }}" data-st="{{ i.status }}" onchange="upd()"></td>
+    <td class="strong">{{ i.number }}</td><td class="muted">{{ i.issue_date|fdate }}</td>
+    <td>{{ i.client_name }}</td><td class="muted">{{ i.event_name or '—' }}</td>
+    <td class="muted">{{ (i.valid_until if Q else i.due_date)|fdate }}</td>
+    <td><span class="badge {{ 'late' if late else ('expired' if expired else i.status) }}">{{ 'En retard' if late else ('Expiré' if expired else ST[i.status]) }}</span>
+      {% if Q and i.invoice_number %}<span class="muted" style="font-size:12px">→ {{ i.invoice_number }}</span>{% endif %}</td>
+    <td class="r num strong">{{ i.total|chf }}</td>
+    <td class="r" onclick="event.stopPropagation()"><a class="btn sm ghost" href="{{ url_for('invoice_pdf', iid=i.id, dl=1) }}" title="Télécharger le PDF">PDF ↓</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="empty"><b>{{ 'Aucun devis trouvé' if Q else 'Aucune facture trouvée' }}</b>Modifiez les filtres ou créez {{ 'un nouveau devis' if Q else 'une nouvelle facture' }}.</div>
+{% endif %}
+</form>
+
+<dialog id="bdel" style="width:min(460px,94vw)"><div style="padding:24px">
+  <h2 id="bdel-t"></h2>
+  <p class="muted" style="margin-top:0" id="bdel-p"></p>
+  <div class="field hidden" id="bdel-f"><label>Pour confirmer, tapez <b>SUPPRIMER</b></label>
+    <input type="text" id="bdel-i" autocomplete="off" oninput="document.getElementById('bdel-ok').disabled = this.value.trim().toUpperCase() !== 'SUPPRIMER'"></div>
+  <div class="row" style="justify-content:flex-end">
+    <button type="button" class="btn ghost" onclick="document.getElementById('bdel').close()">Annuler</button>
+    <button type="button" class="btn primary" id="bdel-ok" style="background:var(--err);border-color:var(--err)" onclick="document.getElementById('bulk').submit()">Supprimer</button>
+  </div>
+</div></dialog>
+{% endblock %}
+{% block scripts %}
+<script>
+const boxes = () => [...document.querySelectorAll('[name=ids]')];
+function upd(){
+  const sel = boxes().filter(b => b.checked);
+  document.getElementById('nsel').textContent = sel.length;
+  document.getElementById('bulkbar').classList.toggle('hidden', !sel.length);
+  const all = document.getElementById('all'); if (all) all.checked = sel.length && sel.length === boxes().length;
+}
+function selAll(v){ boxes().forEach(b => b.checked = v); upd(); }
+function askBulk(){
+  const sel = boxes().filter(b => b.checked);
+  const sent = sel.filter(b => b.dataset.st !== 'brouillon');
+  const Q = {{ 'true' if Q else 'false' }};
+  document.getElementById('bdel-t').textContent = Q ? `Supprimer ${sel.length} devis ?` : `Supprimer ${sel.length} facture${sel.length > 1 ? 's' : ''} ?`;
+  document.getElementById('bdel-p').textContent = sel.map(b => b.dataset.n).join(', ') + (Q ? ' — devis et PDF effacés définitivement, y compris de la sauvegarde.' : ' — factures et PDF effacés définitivement, y compris de la sauvegarde.')
+    + (sent.length ? (Q ? ` ${sent.length} ont déjà été envoyés au client.` : ` ${sent.length} ont déjà été envoyées ou payées : pour la comptabilité, le statut « Annulée » garde une trace.`) : '');
+  document.getElementById('bdel-f').classList.toggle('hidden', !sent.length);
+  document.getElementById('bdel-i').value = '';
+  document.getElementById('bdel-ok').disabled = !!sent.length;
+  document.getElementById('bdel').showModal();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Paramètres{% endblock %}
+{% macro color(name, label) %}
+<div class="field"><label>{{ label }}</label>
+  <div class="color"><input type="color" value="{{ S[name] }}" data-for="{{ name }}"><input type="text" name="{{ name }}" value="{{ S[name] }}" maxlength="7"></div></div>
+{% endmacro %}
+{% block content %}
+<div class="head"><div><h1>Paramètres</h1><div class="sub">Entreprise, apparence, e-mail et sauvegarde</div></div></div>
+<div class="tabs">
+  {% for k, v in [('company','Entreprise'),('design','Apparence'),('mail','Envoi e-mail'),('backup','Sauvegarde')] %}
+  <a href="{{ url_for('settings', tab=k) }}" class="{{ 'on' if tab==k }}">{{ v }}</a>{% endfor %}
+</div>
+
+{% if tab == 'company' %}
+<form method="post" enctype="multipart/form-data">
+<input type="hidden" name="_section" value="company">
+<div class="grid g2">
+  <div class="card">
+    <h2>Votre entreprise</h2>
+    <div class="field"><label>Nom / raison sociale</label><input type="text" name="company_name" value="{{ S.company_name }}"></div>
+    <div class="grid" style="grid-template-columns:1fr 110px;gap:12px">
+      <div class="field"><label>Rue</label><input type="text" name="company_street" value="{{ S.company_street }}"></div>
+      <div class="field"><label>N°</label><input type="text" name="company_house_num" value="{{ S.company_house_num }}"></div></div>
+    <div class="grid" style="grid-template-columns:110px 1fr 80px;gap:12px">
+      <div class="field"><label>NPA</label><input type="text" name="company_pcode" value="{{ S.company_pcode }}"></div>
+      <div class="field"><label>Localité</label><input type="text" name="company_city" value="{{ S.company_city }}"></div>
+      <div class="field"><label>Pays</label><input type="text" name="company_country" maxlength="2" value="{{ S.company_country }}"></div></div>
+    <div class="grid g2" style="gap:12px">
+      <div class="field"><label>E-mail</label><input type="email" name="company_email" value="{{ S.company_email }}"></div>
+      <div class="field"><label>Téléphone</label><input type="text" name="company_phone" value="{{ S.company_phone }}"></div></div>
+    <div class="field"><label>Site web</label><input type="text" name="company_website" value="{{ S.company_website }}"></div>
+    <div class="field" style="margin:0"><label>Logo (PNG ou JPG, idéalement horizontal)</label>
+      {% if S.company_logo %}<div class="row" style="margin-bottom:8px"><img src="{{ url_for('logo') }}" style="height:36px;max-width:200px;object-fit:contain">
+        <label style="margin:0;font-weight:400"><input type="checkbox" name="remove_logo" value="1"> retirer</label></div>{% endif %}
+      <input type="file" name="logo" accept=".png,.jpg,.jpeg"></div>
+  </div>
+  <div class="card">
+    <h2>Paiement & facturation</h2>
+    <div class="field"><label>IBAN ou QR-IBAN</label><input type="text" name="company_iban" value="{{ S.company_iban }}" placeholder="CH.. .... .... .... .... .">
+      <div class="hint">{% if S.company_iban %}{{ 'QR-IBAN détecté → référence QR (QRR) automatique.' if qr_iban else 'IBAN classique → référence créancier (SCOR / RF) automatique.' }}{% else %}Compte CH ou LI qui reçoit les paiements.{% endif %}</div></div>
+    <label class="toggle-row"><input type="checkbox" name="show_vat" value="1" {{ 'checked' if S.show_vat=='1' }} onchange="document.getElementById('vatf').classList.toggle('hidden',!this.checked)"> <b>Appliquer et afficher la TVA</b></label>
+    <div id="vatf" class="grid g2 {{ 'hidden' if S.show_vat!='1' }}" style="gap:12px">
+      <div class="field"><label>N° TVA</label><input type="text" name="company_vat_number" value="{{ S.company_vat_number }}" placeholder="CHE-123.456.789 TVA"></div>
+      <div class="field"><label>Taux TVA %</label><input type="text" name="vat_rate" value="{{ S.vat_rate }}"><div class="hint">8.1 = taux normal</div></div></div>
+    <div class="hint" style="margin:-4px 0 14px">Désactivée : aucune ligne ni mention de TVA sur les factures.</div>
+    <div class="grid g2" style="gap:12px">
+      <div class="field"><label>Délai de paiement (jours)</label><input type="number" name="payment_days" value="{{ S.payment_days }}"></div>
+      <div class="field"><label>Préfixe des numéros</label><input type="text" name="invoice_prefix" value="{{ S.invoice_prefix }}" placeholder="ex. F- → F-2026-001"></div></div>
+    <div class="grid" style="grid-template-columns:1fr 110px;gap:12px">
+      <div class="field"><label>Numérotation</label><select name="invoice_numbering" onchange="['rnd','rnd2'].forEach(i => document.getElementById(i).classList.toggle('hidden', this.value!=='random'))">
+        <option value="sequential" {{ 'selected' if S.invoice_numbering!='random' }}>Séquentielle · 2026-001, 2026-002…</option>
+        <option value="random" {{ 'selected' if S.invoice_numbering=='random' }}>Aléatoire · ex. 2026-483920</option></select></div>
+      <div class="field {{ 'hidden' if S.invoice_numbering!='random' }}" id="rnd"><label>Chiffres</label><input type="number" name="random_digits" min="4" max="9" value="{{ S.random_digits }}"></div>
+    </div>
+    <label class="toggle-row {{ 'hidden' if S.invoice_numbering!='random' }}" id="rnd2"><input type="checkbox" name="random_with_year" value="1" {{ 'checked' if S.random_with_year=='1' }}> Garder l’année devant le numéro aléatoire</label>
+    <div class="hint" style="margin:-4px 0 14px">Le numéro reste modifiable sur chaque facture. Un numéro aléatoire n’indique pas combien de factures vous émettez.</div>
+    <label class="toggle-row"><input type="checkbox" name="round_5ct" value="1" {{ 'checked' if S.round_5ct=='1' }}> Arrondir le total aux 5 centimes</label>
+  </div>
+  <div class="card" style="grid-column:1 / -1">
+    <h2>Présentation des factures <span class="muted" style="font-weight:400;font-size:13px">— valeurs par défaut, modifiables sur chaque facture</span></h2>
+    <div class="grid g2" style="gap:8px 28px">
+      <div>
+        <label class="toggle-row"><input type="checkbox" name="show_due_date" value="1" {{ 'checked' if S.show_due_date=='1' }}> <b>Afficher l’échéance</b> (facture et e-mail)</label>
+        <label class="toggle-row"><input type="checkbox" name="show_payment_terms" value="1" {{ 'checked' if S.show_payment_terms=='1' }}> <b>Afficher les modalités de paiement</b></label>
+        <div class="field"><label>Texte des modalités</label><textarea name="payment_terms_text" style="min-height:64px">{{ S.payment_terms_text }}</textarea>
+          <div class="hint">Variables : {jours} {echeance}</div></div>
+      </div>
+      <div>
+        <label class="toggle-row"><input type="checkbox" name="default_timesheet" value="1" {{ 'checked' if S.default_timesheet=='1' }}> <b>Joindre le décompte des horaires en annexe</b> (factures à l’heure)</label>
+        <div class="field"><label>Lignes d’heures sur la facture</label><select name="default_summary_mode">
+          <option value="lines" {{ 'selected' if S.default_summary_mode!='grouped' }}>Une ligne par jour</option>
+          <option value="grouped" {{ 'selected' if S.default_summary_mode=='grouped' }}>Regroupées par prestation (le détail est en annexe)</option></select></div>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="grid-column:1 / -1">
+    <h2>Devis</h2>
+    <div class="grid g2" style="gap:8px 28px">
+      <div>
+        <div class="grid g2" style="gap:12px">
+          <div class="field"><label>Préfixe des devis</label><input type="text" name="quote_prefix" value="{{ S.quote_prefix }}" placeholder="D-"><div class="hint">ex. D- → D-2026-001</div></div>
+          <div class="field"><label>Validité par défaut (jours)</label><input type="number" min="1" name="quote_validity_days" value="{{ S.quote_validity_days }}"><div class="hint">Modifiable sur chaque devis</div></div>
+        </div>
+        <label class="toggle-row"><input type="checkbox" name="quote_show_acceptance" value="1" {{ 'checked' if S.quote_show_acceptance=='1' }}> <b>Bloc « Bon pour accord »</b> (lieu, date, signature) en bas du devis</label>
+      </div>
+      <div class="field"><label>Conditions du devis</label><textarea name="quote_terms_text" style="min-height:80px">{{ S.quote_terms_text }}</textarea>
+        <div class="hint">Variables : {validite} {jours}</div></div>
+    </div>
+  </div>
+</div>
+<div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn primary">Enregistrer</button></div>
+</form>
+
+{% elif tab == 'design' %}
+<form method="post" id="design">
+<input type="hidden" name="_section" value="design">
+<div class="grid" style="grid-template-columns:400px minmax(0,1fr);align-items:start">
+  <div class="grid">
+    <div class="card">
+      <h2>Facture PDF</h2>
+      {{ color('pdf_accent', 'Couleur d’accent du PDF') }}
+      <div class="field" style="margin:0"><label>Phrase de fin de facture</label><input type="text" name="invoice_footer" value="{{ S.invoice_footer }}"></div>
+    </div>
+    <div class="card">
+      <h2>Couleurs de l’e-mail</h2>
+      <div class="presets" id="presets"></div>
+      <div class="grid g2" style="gap:0 12px">
+        {{ color('mail_primary', 'Principale') }}{{ color('mail_accent', 'Accent (récapitulatif)') }}
+        {{ color('mail_background', 'Fond') }}{{ color('mail_card', 'Page') }}
+        {{ color('mail_text', 'Texte') }}
+      </div>
+      <label style="font-weight:400;display:flex;gap:8px;align-items:center"><input type="checkbox" id="sync"> Utiliser la couleur principale aussi pour le PDF</label>
+    </div>
+    <div class="card">
+      <h2>Texte de l’e-mail</h2>
+      <div class="field"><label>Objet</label><input type="text" name="mail_subject" value="{{ S.mail_subject }}"></div>
+      <div class="field"><label>Message</label><textarea name="mail_message" style="min-height:140px">{{ S.mail_message }}</textarea>
+        <div class="hint">Variables : {numero} {entreprise} {client} {montant} {echeance} {evenement}</div></div>
+      <details style="margin:4px 0 14px"><summary style="cursor:pointer;font-weight:600">E-mail des devis</summary>
+        <div class="field" style="margin-top:12px"><label>Objet</label><input type="text" name="mail_quote_subject" value="{{ S.mail_quote_subject }}"></div>
+        <div class="field"><label>Message</label><textarea name="mail_quote_message" style="min-height:120px">{{ S.mail_quote_message }}</textarea>
+          <div class="hint">Variables : {numero} {entreprise} {client} {montant} {validite} {evenement}</div></div>
+      </details>
+      <label class="toggle-row"><input type="checkbox" name="mail_show_summary" value="1" {{ 'checked' if S.mail_show_summary=='1' }}> Afficher le récapitulatif (montant, n°, échéance)</label>
+      <div class="field" style="margin:0"><label>Texte sous la signature (optionnel)</label>
+        <textarea name="mail_signature_extra" style="min-height:90px" placeholder="ex. horaires d’ouverture, mention légale…">{{ S.mail_signature_extra }}</textarea>
+        <div class="hint">La signature reprend automatiquement nom, adresse, téléphone, site, e-mail et logo.</div></div>
+    </div>
+  </div>
+  <div class="card" style="position:sticky;top:20px;padding:14px;background:var(--soft)">
+    <div class="row" style="justify-content:space-between;margin:2px 4px 12px"><div class="row" style="gap:10px"><strong>Aperçu</strong>
+      <div class="seg"><input type="radio" name="pvdoc" id="pv-i" value="invoice" checked><label for="pv-i" style="padding:6px 12px">Facture</label>
+      <input type="radio" name="pvdoc" id="pv-q" value="quote"><label for="pv-q" style="padding:6px 12px">Devis</label></div></div>
+      <button class="btn primary">Enregistrer</button></div>
+    <iframe class="preview" id="pv" style="height:640px" src="{{ url_for('settings_mail_preview') }}"></iframe>
+  </div>
+</div>
+</form>
+
+{% elif tab == 'mail' %}
+<form method="post">
+<input type="hidden" name="_section" value="mail">
+<div class="grid g2">
+  <div class="card">
+    <h2>Serveur d’envoi (SMTP)</h2>
+    <div class="chips" style="margin-bottom:16px">
+      <button type="button" class="chip" onclick="smtp('mail.infomaniak.com',587,'starttls')">Infomaniak</button>
+      <button type="button" class="chip" onclick="smtp('smtp.gmail.com',587,'starttls')">Gmail</button>
+      <button type="button" class="chip" onclick="smtp('smtp.office365.com',587,'starttls')">Outlook / M365</button>
+      <button type="button" class="chip" onclick="smtp('smtp.bluewin.ch',465,'ssl')">Bluewin</button>
+      <button type="button" class="chip" onclick="smtp('asmtp.mail.hostpoint.ch',587,'starttls')">Hostpoint</button>
+    </div>
+    <div class="grid" style="grid-template-columns:1fr 100px 140px;gap:12px">
+      <div class="field"><label>Serveur</label><input type="text" name="smtp_host" value="{{ S.smtp_host }}"></div>
+      <div class="field"><label>Port</label><input type="text" name="smtp_port" value="{{ S.smtp_port }}"></div>
+      <div class="field"><label>Sécurité</label><select name="smtp_security">
+        {% for k, v in [('starttls','STARTTLS'),('ssl','SSL/TLS'),('none','Aucune')] %}<option value="{{ k }}" {{ 'selected' if S.smtp_security==k }}>{{ v }}</option>{% endfor %}</select></div></div>
+    <div class="grid g2" style="gap:12px">
+      <div class="field"><label>Identifiant</label><input type="text" name="smtp_user" value="{{ S.smtp_user }}"></div>
+      <div class="field"><label>Mot de passe</label><input type="password" name="smtp_password" placeholder="{{ '•••••••• (inchangé)' if S.smtp_password else '' }}"></div></div>
+    <div class="field"><label>Nom d’expéditeur</label><input type="text" name="smtp_from_name" value="{{ S.smtp_from_name }}" placeholder="{{ S.company_name }}"></div>
+    <label style="font-weight:400;display:flex;gap:8px;align-items:center"><input type="checkbox" name="smtp_bcc_self" value="1" {{ 'checked' if S.smtp_bcc_self=='1' }}> M’envoyer une copie cachée de chaque facture</label>
+    <div class="row" style="justify-content:flex-end;margin-top:18px">
+      <button class="btn" formaction="{{ url_for('settings_test_mail') }}" formmethod="post">Tester la connexion</button>
+      <button class="btn primary">Enregistrer</button></div>
+  </div>
+  <div class="card">
+    <h2>Bon à savoir</h2>
+    <p class="muted" style="margin-top:0">L’e-mail part de l’adresse de l’entreprise ({{ S.company_email or 'à renseigner dans Entreprise' }}), avec la facture PDF en pièce jointe.</p>
+    <p class="muted"><strong style="color:var(--ink)">Gmail :</strong> activez la validation en deux étapes, puis créez un « mot de passe d’application » (compte Google → Sécurité) et utilisez-le ici.</p>
+    <p class="muted"><strong style="color:var(--ink)">Infomaniak, Hostpoint… :</strong> identifiant = votre adresse e-mail complète.</p>
+    <p class="muted" style="margin-bottom:0">Le mot de passe est stocké localement dans la base de données de l’application, sur votre ordinateur.</p>
+  </div>
+</div>
+</form>
+
+{% else %}
+<form method="post">
+<input type="hidden" name="_section" value="backup">
+<div class="grid g2">
+  <div class="card">
+    <h2>Sauvegarde automatique</h2>
+    <div class="field"><label>Dossier de sauvegarde (dans votre Google Drive)</label>
+      <input type="text" name="backup_dir" value="{{ S.backup_dir }}" placeholder="G:\Mon Drive\Factures">
+      <div class="hint">Copié après chaque facture, envoi ou modification : base de données + tous les PDF, classés par année.</div></div>
+    <div class="field"><label>Historique quotidien conservé (jours)</label><input type="number" name="backup_keep" value="{{ S.backup_keep }}" style="width:120px"></div>
+    <div class="flash {{ 'ok' if backup_status.ok else ('error' if backup_status.ok == false else 'warn') }}" style="margin:0 0 16px">
+      {{ backup_status.message }}{% if backup_status.when %} · {{ backup_status.when }}{% endif %}</div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" formaction="{{ url_for('backup_now') }}">Sauvegarder maintenant</button>
+      <button class="btn primary">Enregistrer</button></div>
+  </div>
+  <div class="card">
+    <h2>Mise en place avec Google Drive</h2>
+    <ol class="muted" style="padding-left:18px;margin:0;line-height:1.8">
+      <li>Installez <strong style="color:var(--ink)">Google Drive pour ordinateur</strong> et connectez-vous.</li>
+      <li>Créez un dossier « Factures » dans <em>Mon Drive</em>.</li>
+      <li>Collez son chemin ci-contre :<br>
+        Windows : <code>G:\Mon Drive\Factures</code><br>
+        Mac : <code>~/Library/CloudStorage/GoogleDrive-vous@gmail.com/Mon Drive/Factures</code></li>
+      <li>Cliquez « Sauvegarder maintenant » pour vérifier.</li>
+    </ol>
+    <p class="muted" style="margin-bottom:0">Fonctionne aussi avec iCloud Drive, OneDrive, Dropbox ou kDrive. Pour restaurer : copiez <code>factures.db</code> du Drive dans le dossier <code>data</code> de l’application.</p>
+  </div>
+</div>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function smtp(h,p,s){ document.querySelector('[name=smtp_host]').value=h; document.querySelector('[name=smtp_port]').value=p; document.querySelector('[name=smtp_security]').value=s; }
+document.querySelectorAll('.color').forEach(w => {
+  const pick = w.querySelector('[type=color]'), txt = w.querySelector('[type=text]');
+  pick.oninput = () => { txt.value = pick.value.toUpperCase(); refresh(); };
+  txt.oninput = () => { if (/^#[0-9a-f]{6}$/i.test(txt.value)) { pick.value = txt.value; refresh(); } };
+});
+const pv = document.getElementById('pv');
+let t;
+function refresh(){
+  if (!pv) return;
+  const sync = document.getElementById('sync');
+  if (sync && sync.checked) { const v = document.querySelector('[name=mail_primary]').value; document.querySelector('[name=pdf_accent]').value = v; document.querySelector('[data-for=pdf_accent]').value = v; }
+  clearTimeout(t); t = setTimeout(() => {
+    const p = new URLSearchParams();
+    ['mail_primary','mail_accent','mail_background','mail_card','mail_text','mail_message','mail_signature_extra'].forEach(k => p.set(k, document.querySelector(`[name=${k}]`).value));
+    p.set('mail_show_summary', document.querySelector('[name=mail_show_summary]').checked ? '1' : '0');
+    p.set('mail_quote_message', document.querySelector('[name=mail_quote_message]').value);
+    if (document.getElementById('pv-q').checked) p.set('doc', 'quote');
+    pv.src = '{{ url_for('settings_mail_preview') }}?' + p;
+  }, 200);
+}
+const PRESETS = [
+  ['Pétrole',  '#006587','#7FC4D6','#F4F4F4','#FFFFFF','#006587'],
+  ['Marine',   '#1F3A5F','#E9B44C','#F4F1EC','#FFFFFF','#1D1D1F'],
+  ['Graphite', '#18181B','#A3E635','#F4F4F5','#FFFFFF','#18181B'],
+  ['Bordeaux', '#6B1E2E','#D9A05B','#F6EFEA','#FFFFFF','#2A1A1C'],
+  ['Forêt',    '#1F4D3A','#E2B659','#EEF2EC','#FFFFFF','#18221D'],
+  ['Scène',    '#111827','#EF4444','#EDEDED','#FFFFFF','#111827'],
+  ['Lavande',  '#4338CA','#F0ABFC','#F1F0FB','#FFFFFF','#1E1B4B'],
+  ['Terracotta','#B4532A','#264653','#F7EFE8','#FFFFFF','#2B1D16'],
+];
+const pr = document.getElementById('presets');
+if (pr) PRESETS.forEach(p => {
+  const b = document.createElement('div'); b.className = 'preset'; b.title = p[0];
+  b.innerHTML = `<span style="background:${p[1]}"></span><span style="background:${p[2]}"></span>`;
+  b.onclick = () => { ['mail_primary','mail_accent','mail_background','mail_card','mail_text'].forEach((k,i) => {
+      document.querySelector(`[name=${k}]`).value = p[i+1]; document.querySelector(`[data-for=${k}]`).value = p[i+1]; }); refresh(); };
+  pr.appendChild(b);
+});
+document.querySelectorAll('[name=pvdoc]').forEach(r => r.addEventListener('change', refresh));
+['mail_message','mail_signature_extra','mail_quote_message'].forEach(k => { const el = document.querySelector(`[name=${k}]`); if (el) el.addEventListener('input', refresh); });
+const ms = document.querySelector('[name=mail_show_summary]'); if (ms) ms.addEventListener('change', refresh);
+const sy = document.getElementById('sync'); if (sy) sy.onchange = refresh;
+if (pv) pv.onload = () => { try { pv.style.height = (pv.contentDocument.body.scrollHeight + 10) + 'px'; } catch(e){} };
+</script>
+{% endblock %}

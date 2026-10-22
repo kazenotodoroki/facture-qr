@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Clients{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>Clients</h1><div class="sub">{{ clients|length }} client{{ 's' if clients|length > 1 }}{{ ' archivé(s)' if show_archived }}</div></div>
+  <div class="row">
+    <a class="btn ghost" href="{{ url_for('clients', archives='0' if show_archived else '1') }}">{{ 'Clients actifs' if show_archived else 'Archives' }}</a>
+    <a class="btn primary" href="{{ url_for('client_edit') }}">+ Nouveau client</a>
+  </div>
+</div>
+<form class="card" style="padding:14px;margin-bottom:16px" method="get">
+  {% if show_archived %}<input type="hidden" name="archives" value="1">{% endif %}
+  <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+  <input type="text" name="q" id="cq" value="{{ q }}" placeholder="Rechercher un client : nom, ville, contact, e-mail, tarif…" autofocus autocomplete="off"></div>
+</form>
+<div class="card" style="padding:8px 10px">
+{% if clients %}
+<table class="list">
+  <tr><th>Client</th><th>Ville</th><th>Tarifs horaires</th><th class="r">Factures</th><th class="r">Total facturé</th><th></th></tr>
+  {% for c in clients %}
+  <tr class="click crow" data-s="{{ [c.name, c.contact, c.city, c.email, c.notes]|join(' ') }} {{ rates.get(c.id, [])|map(attribute='label')|join(' ') }}" onclick="location='{{ url_for('client_edit', cid=c.id) }}'">
+    <td><div class="strong">{{ c.name }}</div><div class="muted" style="font-size:13px">{{ c.email or 'pas d’e-mail' }}</div></td>
+    <td class="muted">{{ c.city }}</td>
+    <td><div class="chips">{% for r in rates.get(c.id, []) %}<span class="chip" style="cursor:default">{{ r.label }}<b>{{ r.rate|chf }}</b></span>{% else %}<span class="muted">—</span>{% endfor %}</div></td>
+    <td class="r">{{ c.ninv }}</td>
+    <td class="r num">CHF {{ c.ca|chf }}</td>
+    <td class="r" onclick="event.stopPropagation()">
+      <a class="btn sm ghost" href="{{ url_for('quote_form', client=c.id) }}">Devis</a>
+      <a class="btn sm" href="{{ url_for('invoice_form', client=c.id) }}">Facturer</a>
+      <a class="btn sm ghost" href="{{ url_for('invoices', client=c.id) }}">Factures</a>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+<div class="empty hidden" id="noresult"><b>Aucun client trouvé</b>Essayez un autre mot-clé.</div>
+{% else %}
+<div class="empty"><b>{{ 'Aucun résultat pour « ' ~ q ~ ' »' if q else ('Aucun client archivé' if show_archived else 'Aucun client') }}</b>
+{% if not show_archived and not q %}Ajoutez vos clients avec leurs tarifs (montage, régie…).{% endif %}</div>
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const inp = document.getElementById('cq');
+inp.setSelectionRange(inp.value.length, inp.value.length);
+inp.addEventListener('input', () => {
+  const words = norm(inp.value).split(/\s+/).filter(Boolean);
+  let n = 0;
+  document.querySelectorAll('.crow').forEach(r => {
+    const ok = words.every(w => norm(r.dataset.s).includes(w));
+    r.classList.toggle('hidden', !ok); n += ok;
+  });
+  const nr = document.getElementById('noresult'); if (nr) nr.classList.toggle('hidden', n > 0);
+});
+</script>
+{% endblock %}
