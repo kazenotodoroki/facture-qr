@@ -18,6 +18,8 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>Factures</a>
     <a href="{{ url_for('quotes') }}" class="{{ 'active' if ep in ('quotes','quote_form') or (ep=='invoice_view' and Q is defined and Q) }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 14l2 2 4-4"/></svg>Devis</a>
+    <a href="{{ url_for('items_list') }}" class="{{ 'active' if ep.startswith('item') }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Inventaire</a>
     <a href="{{ url_for('clients') }}" class="{{ 'active' if ep.startswith('client') }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 3.5a4 4 0 0 1 0 8M22 21a7 7 0 0 0-4-6.3"/></svg>Clients</a>
     <a href="{{ url_for('settings') }}" class="{{ 'active' if ep.startswith('settings') }}">

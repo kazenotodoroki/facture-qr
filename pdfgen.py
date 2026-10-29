@@ -242,7 +242,8 @@ def generate_invoice_pdf(path, settings, client, invoice, lines):
     show_vat = bool(invoice.get("show_vat"))
     show_due = bool(invoice.get("show_due", 1))
     annex = hours_mode and bool(invoice.get("show_timesheet")) and any(l.get("line_date") or l.get("start_time") for l in h_lines)
-    simple = not hours_mode and all(abs(l["quantity"] - 1) < 1e-9 for l in f_lines)
+    simple = not hours_mode and all(abs(l["quantity"] - 1) < 1e-9 and abs((l.get("days") or 1) - 1) < 1e-9
+                                    for l in f_lines)
 
     # ---- colonnes du tableau principal ----
     dated = hours_mode and not grouped
@@ -266,6 +267,10 @@ def generate_invoice_pdf(path, settings, client, invoice, lines):
         if l["kind"] == "hours" and not grouped and not annex and l.get("start_time") and l.get("end_time"):
             times = f"{l['start_time']} – {l['end_time']}"
             detail = f"{times} · {detail}" if detail else times
+        if l["kind"] == "flat" and l.get("rent_from"):
+            a, b = l["rent_from"], l.get("rent_to") or l["rent_from"]
+            period = fdate(a) if a == b else (f"du {fdate(a)[:5]} au {fdate(b)}" if a[:4] == b[:4] else f"du {fdate(a)} au {fdate(b)}")
+            detail = f"{period} · {detail}" if detail else period
         rows.append(("line", l, _ellipsis(title, "Inter-Medium", 9.5, desc_w),
                      _ellipsis(detail, "Inter-Regular", 8.5, desc_w) if detail else "", ROW_H))
 
@@ -352,6 +357,8 @@ def generate_invoice_pdf(path, settings, client, invoice, lines):
             c.drawString(X0, base, fdate(l.get("line_date", "")))
         if not simple:
             q = fnum(round(l["quantity"], 2)) + (" h" if l["kind"] == "hours" else "")
+            if l["kind"] == "flat" and (l.get("days") or 1) != 1:
+                q = f"{fnum(round(l['quantity'], 2))} × {fnum(round(l['days'], 2))} j"
             c.drawRightString(cols[-3][1], base, q)
             c.drawRightString(cols[-2][1], base, chf(l["unit_price"]))
         c.setFont("Inter-Medium", 9.5)

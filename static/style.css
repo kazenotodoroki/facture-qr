@@ -136,3 +136,7 @@ aside .cta2:hover{background:rgba(255,255,255,.08)}
 .badge.expired{background:var(--warn-soft);color:var(--warn)}
 .link-card{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;text-decoration:none;background:#FAFAF8}
 .link-card:hover{border-color:#A1A1AA}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.avail{font-size:12px;margin-top:4px;color:var(--muted);min-height:15px}
+.avail.ok{color:var(--ok)}.avail.warn{color:var(--warn)}.avail.bad{color:var(--err);font-weight:600}
+.lines .narrow input{padding-left:8px;padding-right:6px}

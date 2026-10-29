@@ -17,11 +17,13 @@ from flask import (Flask, Response, abort, flash, jsonify, redirect, render_temp
 
 import backup
 import db
+import inventory
 import mailer
+import packlist
 from pdfgen import chf, fdate, fnum, generate_invoice_pdf, hours_between
 from references import format_reference, is_qr_iban, make_reference
 
-VERSION = "1.6 · 22.10.2026"
+VERSION = "1.8 · 29.10.2026"
 
 app = Flask(__name__)
 app.secret_key = "factureqr-local"
@@ -205,6 +207,19 @@ def _load_invoice(iid):
     return dict(inv), [dict(l) for l in lines], snap, dict(client)
 
 
+LINE_COLS = ["kind", "line_date", "start_time", "end_time", "description", "rate_label", "quantity",
+             "unit_price", "amount", "item_id", "days", "rent_from", "rent_to"]
+
+
+def _insert_line(conn, doc_id, position, l):
+    vals = [l.get(k) for k in LINE_COLS]
+    vals[LINE_COLS.index("days")] = l.get("days") or 1
+    for k in ("rent_from", "rent_to", "line_date", "start_time", "end_time", "description"):
+        vals[LINE_COLS.index(k)] = l.get(k) or ""
+    conn.execute(f"INSERT INTO invoice_lines(invoice_id, position, {', '.join(LINE_COLS)}) "
+                 f"VALUES (?, ?, {', '.join('?' * len(LINE_COLS))})", [doc_id, position] + vals)
+
+
 def _num(v, default=0.0):
     try:
         return float(str(v).replace("'", "").replace(",", ".").strip())
@@ -331,7 +346,10 @@ def invoice_form(iid=None, doc_type="invoice"):
             flash(f"{'Ce devis' if doc_type == 'quote' else 'Cette facture'} a déjà été envoyé{'' if doc_type == 'quote' else 'e'} : "
                   "modifiez avec prudence.", "warn")
     preset_client = request.args.get("client", type=int)
-    return render_template("invoice_form.html", clients=[dict(c) for c in all_clients], inv=inv, lines=lines,
+    with db.connect() as conn:
+        items = [dict(r) for r in conn.execute("""SELECT id, name, category, reference, quantity, price_day
+            FROM items WHERE archived=0 ORDER BY category COLLATE NOCASE, name COLLATE NOCASE""")]
+    return render_template("invoice_form.html", clients=[dict(c) for c in all_clients], inv=inv, lines=lines, items=items,
                            preset_client=preset_client, payment_days=int(s.get("payment_days") or 30),
                            Q=doc_type == "quote", validity_days=int(s.get("quote_validity_days") or 30))
 
@@ -372,14 +390,25 @@ def _save_invoice(iid, s, doc_type="invoice"):
                 q = hours_between(st, en) or 0
             if q and lab.strip():
                 lines.append(dict(kind="hours", line_date=d, start_time=st, end_time=en, rate_label=lab.strip(),
-                                  description=desc.strip(), quantity=q, unit_price=r, amount=round(q * r, 2)))
+                                  description=desc.strip(), quantity=q, unit_price=r, amount=round(q * r, 2),
+                                  item_id=None, days=1, rent_from="", rent_to=""))
     if mode in ("flat", "mixed"):
-        for lab, desc, qty, price in zip(f.getlist("f_label"), f.getlist("f_desc"), f.getlist("f_qty"),
-                                         f.getlist("f_price")):
+        n = len(f.getlist("f_label"))
+        col = lambda k: (f.getlist(k) + [""] * n)[:n]
+        for lab, desc, qty, price, item, d1, d2, days in zip(
+                col("f_label"), col("f_desc"), col("f_qty"), col("f_price"), col("f_item"),
+                col("f_from"), col("f_to"), col("f_days")):
             q, p = _num(qty, 1.0) or 1.0, _num(price)
+            dn = _num(days, 1.0) or 1.0
+            if d1 and d2 and d2 < d1:
+                d1, d2 = d2, d1
+            if d1 and not d2:
+                d2 = d1
             if lab.strip() and p:
                 lines.append(dict(kind="flat", line_date="", start_time="", end_time="", rate_label=lab.strip(),
-                                  description=desc.strip(), quantity=q, unit_price=p, amount=round(q * p, 2)))
+                                  description=desc.strip(), quantity=q, unit_price=p, amount=round(q * dn * p, 2),
+                                  item_id=int(item) if item.isdigit() else None, days=dn,
+                                  rent_from=d1, rent_to=d2))
     if not lines:
         flash("Ajoutez au moins une ligne (heures ou forfait).", "error")
         return redirect(request.url)
@@ -429,10 +458,7 @@ def _save_invoice(iid, s, doc_type="invoice"):
                 conn.execute("UPDATE invoices SET reference=? WHERE id=?",
                              (unique_reference(conn, s["company_iban"], number, iid), iid))
         for i, l in enumerate(lines):
-            conn.execute("""INSERT INTO invoice_lines(invoice_id,position,kind,line_date,start_time,end_time,
-                description,rate_label,quantity,unit_price,amount) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                         (iid, i, l["kind"], l["line_date"], l["start_time"], l["end_time"], l["description"],
-                          l["rate_label"], l["quantity"], l["unit_price"], l["amount"]))
+            _insert_line(conn, iid, i, l)
     try:
         build_pdf(iid)
     except Exception as exc:
@@ -458,7 +484,8 @@ def invoice_view(iid):
             r = conn.execute("SELECT id, number FROM invoices WHERE id=?", (inv["quote_id"],)).fetchone()
             links["quote"] = dict(r) if r else None
     Q = is_quote(inv)
-    return render_template("invoice_view.html", inv=inv, lines=lines, client=snap, live_client=client,
+    n_rental = len(packlist.rental_lines(lines))
+    return render_template("invoice_view.html", inv=inv, lines=lines, client=snap, live_client=client, n_rental=n_rental,
                            Q=Q, ST=QSTATUSES if Q else STATUSES, links=links,
                            subject=mailer.subject(s, snap, inv), message=mailer.message_text(s, snap, inv),
                            open_send=request.args.get("envoyer") == "1")
@@ -607,10 +634,7 @@ def _copy_document(src, lines, s, doc_type, quote_id=None):
             conn.execute("UPDATE invoices SET reference=? WHERE id=?",
                          (unique_reference(conn, s["company_iban"], number, nid), nid))
         for l in lines:
-            conn.execute("""INSERT INTO invoice_lines(invoice_id,position,kind,line_date,start_time,end_time,
-                description,rate_label,quantity,unit_price,amount) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                         (nid, l["position"], l["kind"], l["line_date"], l["start_time"], l["end_time"],
-                          l["description"], l["rate_label"], l["quantity"], l["unit_price"], l["amount"]))
+            _insert_line(conn, nid, l["position"], l)
     return nid, number
 
 
@@ -640,6 +664,161 @@ def quote_to_invoice(iid):
     flash(f"Facture {number} créée depuis le devis {inv['number']}. Ajustez les heures réelles si besoin, "
           "puis enregistrez.", "ok")
     return redirect(url_for("invoice_form", iid=nid))
+
+
+# ------------------------------------------------------------------ inventaire
+ITEM_FIELDS = ["name", "category", "reference", "quantity", "price_day", "value", "notes"]
+
+
+def _period():
+    today = date.today().isoformat()
+    d1 = request.args.get("du") or today
+    d2 = request.args.get("au") or d1
+    if d2 < d1:
+        d1, d2 = d2, d1
+    return d1, d2
+
+
+@app.route("/inventaire")
+def items_list():
+    d1, d2 = _period()
+    show_archived = request.args.get("archives") == "1"
+    with db.connect() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM items WHERE archived=? "
+                                              "ORDER BY category COLLATE NOCASE, name COLLATE NOCASE",
+                                              (1 if show_archived else 0,))]
+        av = inventory.availability(conn, d1, d2)
+    for r in rows:
+        a = av.get(r["id"], {"firm": 0, "option": 0})
+        r.update(firm=a["firm"], option=a["option"], free=r["quantity"] - a["firm"] - a["option"])
+    if request.args.get("format") == "csv":
+        buf = io.StringIO()
+        w = csv.writer(buf, delimiter=";")
+        w.writerow(["Article", "Catégorie", "Référence", "Stock", "Prix / jour CHF", "Valeur unitaire CHF",
+                    "Valeur totale CHF", f"Réservé {fdate(d1)}–{fdate(d2)}", "Options", "Disponible", "Notes"])
+        for r in rows:
+            w.writerow([r["name"], r["category"], r["reference"], fnum(r["quantity"]), f"{r['price_day']:.2f}",
+                        f"{r['value']:.2f}", f"{r['value'] * r['quantity']:.2f}", fnum(r["firm"]),
+                        fnum(r["option"]), fnum(r["free"]), r["notes"]])
+        return Response("\ufeff" + buf.getvalue(), mimetype="text/csv",
+                        headers={"Content-Disposition": "attachment; filename=inventaire.csv"})
+    cats = sorted({r["category"] for r in rows if r["category"]}, key=str.lower)
+    total_value = sum(r["value"] * r["quantity"] for r in rows)
+    return render_template("items.html", items=rows, cats=cats, d1=d1, d2=d2, total_value=total_value,
+                           show_archived=show_archived)
+
+
+@app.route("/inventaire/nouveau", methods=["GET", "POST"])
+@app.route("/inventaire/<int:item_id>", methods=["GET", "POST"])
+def item_edit(item_id=None):
+    if request.method == "POST":
+        f = request.form
+        vals = {k: f.get(k, "").strip() for k in ITEM_FIELDS}
+        if not vals["name"]:
+            flash("Le nom de l'article est obligatoire.", "error")
+            return redirect(request.url)
+        vals["quantity"] = max(_num(vals["quantity"], 1.0), 0)
+        vals["price_day"] = _num(vals["price_day"])
+        vals["value"] = _num(vals["value"])
+        with db.connect() as conn:
+            if item_id:
+                conn.execute(f"UPDATE items SET {', '.join(k + '=?' for k in vals)} WHERE id=?",
+                             list(vals.values()) + [item_id])
+            else:
+                item_id = conn.execute(f"INSERT INTO items({', '.join(vals)}) VALUES ({', '.join('?' * len(vals))})",
+                                       list(vals.values())).lastrowid
+        after_change()
+        flash("Article enregistré.", "ok")
+        if f.get("then") == "new":
+            return redirect(url_for("item_edit"))
+        return redirect(url_for("items_list"))
+    item, upcoming, past = None, [], []
+    with db.connect() as conn:
+        if item_id:
+            item = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone() or abort(404)
+            today = date.today().isoformat()
+            allb = inventory.bookings(conn, item_id)
+            upcoming = [b for b in allb if b["rent_to"] >= today]
+            past = [b for b in allb if b["rent_to"] < today][-20:][::-1]
+        cats = [r[0] for r in conn.execute("SELECT DISTINCT category FROM items WHERE category!='' ORDER BY 1")]
+    return render_template("item_form.html", item=item, upcoming=upcoming, past=past, cats=cats)
+
+
+@app.post("/inventaire/<int:item_id>/archiver")
+def item_archive(item_id):
+    with db.connect() as conn:
+        conn.execute("UPDATE items SET archived = 1 - archived WHERE id=?", (item_id,))
+    after_change()
+    return redirect(url_for("items_list"))
+
+
+def _items_by_id(conn):
+    return {r["id"]: dict(r) for r in conn.execute("SELECT * FROM items")}
+
+
+@app.route("/factures/<int:iid>/<any(chargement, retour):mode>.pdf")
+def doc_packlist(iid, mode):
+    inv, lines, snap, _ = _load_invoice(iid)
+    rl = packlist.rental_lines(lines)
+    with db.connect() as conn:
+        items = _items_by_id(conn)
+    buf = io.BytesIO()
+    packlist.generate_packlist(buf, db.get_settings(), [dict(doc=inv, client=snap, lines=rl, items=items)], mode)
+    buf.seek(0)
+    name = f"{'Chargement' if mode == 'chargement' else 'Retour'}_{inv['number']}_{slug(snap['name'])}.pdf"
+    return send_file(buf, mimetype="application/pdf", as_attachment=request.args.get("dl") == "1",
+                     download_name=name)
+
+
+@app.route("/inventaire/<any(chargement, retour):mode>.pdf")
+def period_packlist(mode):
+    """Tous les départs (ou retours) de matériel de la période, un document par page."""
+    d1, d2 = _period()
+    col = "l.rent_from" if mode == "chargement" else "COALESCE(NULLIF(l.rent_to,''), l.rent_from)"
+    with_options = request.args.get("options") == "1"
+    status_sql = """((i.doc_type='invoice' AND i.status!='annulée')
+        OR (i.doc_type='quote' AND i.converted_invoice_id IS NULL AND (i.status='accepté'""" + (
+        " OR (i.status IN ('brouillon','envoyé') AND i.valid_until >= :today)" if with_options else "") + ")))"
+    with db.connect() as conn:
+        doc_ids = [r[0] for r in conn.execute(f"""SELECT DISTINCT i.id FROM invoice_lines l
+            JOIN invoices i ON i.id=l.invoice_id
+            WHERE l.kind='flat' AND l.rent_from!='' AND {col} BETWEEN :d1 AND :d2 AND {status_sql}""",
+                                              dict(d1=d1, d2=d2, today=date.today().isoformat()))]
+        items = _items_by_id(conn)
+    groups = []
+    for did in doc_ids:
+        inv, lines, snap, _ = _load_invoice(did)
+        rl = [l for l in packlist.rental_lines(lines) if l.get("rent_from") and
+              d1 <= (l["rent_from"] if mode == "chargement" else (l.get("rent_to") or l["rent_from"])) <= d2]
+        if rl:
+            groups.append(dict(doc=inv, client=snap, lines=rl, items=items))
+    key = (lambda g: min(l["rent_from"] for l in g["lines"])) if mode == "chargement" else \
+          (lambda g: max(l.get("rent_to") or l["rent_from"] for l in g["lines"]))
+    groups.sort(key=key)
+    per = fdate(d1) if d1 == d2 else f"{fdate(d1)} – {fdate(d2)}"
+    buf = io.BytesIO()
+    packlist.generate_packlist(buf, db.get_settings(), groups, mode,
+                               subtitle=("Départs" if mode == "chargement" else "Retours") + f" · {per}")
+    buf.seek(0)
+    name = f"{'Chargements' if mode == 'chargement' else 'Retours'}_{d1}{'_' + d2 if d2 != d1 else ''}.pdf"
+    return send_file(buf, mimetype="application/pdf", as_attachment=request.args.get("dl") == "1",
+                     download_name=name)
+
+
+@app.get("/api/disponibilite")
+def api_availability():
+    """Disponibilité d'un article sur une période, sans compter le document en cours d'édition."""
+    item_id = request.args.get("item", type=int)
+    d1 = request.args.get("du", "")
+    d2 = request.args.get("au", "") or d1
+    with db.connect() as conn:
+        it = conn.execute("SELECT quantity FROM items WHERE id=?", (item_id,)).fetchone()
+        if not it or not d1:
+            return jsonify(ok=False)
+        bs = inventory.bookings(conn, item_id, min(d1, d2), max(d1, d2), request.args.get("exclude", type=int))
+    return jsonify(ok=True, stock=it["quantity"], firm=sum(b["quantity"] for b in bs if b["firm"]),
+                   option=sum(b["quantity"] for b in bs if not b["firm"]),
+                   docs=[f"{b['number']} ({b['client_name']})" for b in bs][:6])
 
 
 # ------------------------------------------------------------------ paramètres

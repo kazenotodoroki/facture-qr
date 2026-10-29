@@ -64,12 +64,12 @@
     <div id="flat" style="margin-top:22px">
       <div class="sec-title">Forfaits et locations</div>
       <table class="lines">
-        <thead><tr><th style="width:280px">Libellé</th><th>Détail (optionnel)</th><th style="width:80px">Qté</th><th style="width:110px">Prix unit. CHF</th><th style="width:92px" class="r">Montant</th><th style="width:28px"></th></tr></thead>
+        <thead><tr><th style="width:250px">Libellé / article</th><th>Détail (optionnel)</th><th style="width:142px">Du</th><th style="width:142px">Au</th><th style="width:64px">Qté</th><th style="width:64px">Jours</th><th style="width:96px">Prix CHF</th><th style="width:92px" class="r">Montant</th><th style="width:28px"></th></tr></thead>
         <tbody id="f-body"></tbody>
       </table>
       <datalist id="flat-labels"></datalist>
       <div class="row"><button type="button" class="btn sm" onclick="addF()">+ Ajouter un forfait / une location</button>
-        <span class="hint" style="margin:0">ex. Location console lumière · Qté 3 · Prix 120.– (par jour)</span></div>
+        <span class="hint" style="margin:0">Tapez le nom d'un article de l'<a href="{{ url_for('items_list') }}" target="_blank">inventaire</a> pour reprendre son prix et vérifier sa disponibilité. Montant = qté × jours × prix.</span></div>
     </div>
 
     <div class="totals">
@@ -181,19 +181,81 @@ function addH(l){
   calc();
 }
 const q = v => String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const ITEMS = {{ items|tojson }};
+const DOC_ID = {{ inv.id if inv else 'null' }};
+const findItem = name => { const n = norm(name).trim(); return n ? ITEMS.find(i => norm(i.name) === n) : null; };
+const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000) + 1;
+function defaultFrom(){
+  const last = [...document.querySelectorAll('#f-body tr')].pop();
+  if (last) return [last.querySelector('[name=f_from]').value, last.querySelector('[name=f_to]').value];
+  if ($('#ev1').checked && document.querySelector('[name=event_date]').value) {
+    const d = document.querySelector('[name=event_date]').value; return [d, d];
+  }
+  return ['', ''];
+}
 function addF(l){
-  l = l || {};
+  const isNew = !l; l = l || {};
+  const [df, dt] = isNew ? defaultFrom() : [l.rent_from || '', l.rent_to || ''];
   const tr = document.createElement('tr');
   tr.innerHTML = `
-    <td><input type="text" name="f_label" list="flat-labels" placeholder="ex. Location console lumière" value="${q(l.rate_label)}"></td>
-    <td><input type="text" name="f_desc" placeholder="ex. du 15 au 17.10" value="${q(l.description)}"></td>
-    <td><input type="text" inputmode="decimal" name="f_qty" value="${l.quantity ?? 1}"></td>
-    <td><input type="text" inputmode="decimal" name="f_price" placeholder="0.00" value="${l.unit_price ?? ''}"></td>
+    <td><input type="text" name="f_label" list="flat-labels" placeholder="ex. Location console lumière" value="${q(l.rate_label)}">
+        <input type="hidden" name="f_item" value="${l.item_id ?? ''}"><div class="avail"></div></td>
+    <td><input type="text" name="f_desc" placeholder="optionnel" value="${q(l.description)}"></td>
+    <td class="narrow"><input type="date" name="f_from" value="${df}"></td>
+    <td class="narrow"><input type="date" name="f_to" value="${dt}"></td>
+    <td class="narrow"><input type="text" inputmode="decimal" name="f_qty" value="${l.quantity ?? 1}"></td>
+    <td class="narrow"><input type="text" inputmode="decimal" name="f_days" value="${l.days ?? 1}"></td>
+    <td class="narrow"><input type="text" inputmode="decimal" name="f_price" placeholder="0.00" value="${l.unit_price ?? ''}"></td>
     <td class="amt">0.00</td>
     <td><button type="button" class="x">×</button></td>`;
-  tr.querySelector('.x').onclick = () => { tr.remove(); calc(); };
+  const g = n => tr.querySelector(`[name=${n}]`);
+  let daysTouched = !isNew && l.days && l.rent_from && daysBetween(l.rent_from, l.rent_to || l.rent_from) !== l.days;
+  const syncDays = () => {
+    if (daysTouched) return;
+    const a = g('f_from').value, b = g('f_to').value || a;
+    if (a && b && b >= a) g('f_days').value = daysBetween(a, b);
+  };
+  g('f_label').addEventListener('input', () => {
+    const it = findItem(g('f_label').value);
+    if (it) {
+      if (String(g('f_item').value) !== String(it.id)) { g('f_item').value = it.id; if (it.price_day) g('f_price').value = it.price_day; }
+    } else g('f_item').value = '';
+    calc(); checkAll();
+  });
+  g('f_from').addEventListener('change', () => { if (!g('f_to').value || g('f_to').value < g('f_from').value) g('f_to').value = g('f_from').value; syncDays(); calc(); checkAll(); });
+  g('f_to').addEventListener('change', () => { syncDays(); calc(); checkAll(); });
+  g('f_days').addEventListener('input', () => { daysTouched = true; });
+  g('f_qty').addEventListener('input', checkAll);
+  tr.querySelector('.x').onclick = () => { tr.remove(); calc(); checkAll(); };
   $('#f-body').appendChild(tr);
-  calc();
+  calc(); checkAll();
+}
+// ---- disponibilité du matériel ----
+let ct;
+function checkAll(){ clearTimeout(ct); ct = setTimeout(_checkAll, 300); }
+async function _checkAll(){
+  const rows = [...document.querySelectorAll('#f-body tr')];
+  for (const tr of rows) {
+    const g = n => tr.querySelector(`[name=${n}]`), box = tr.querySelector('.avail');
+    const id = g('f_item').value, a = g('f_from').value, b = g('f_to').value || a;
+    box.className = 'avail'; box.textContent = '';
+    if (!id) continue;
+    const it = ITEMS.find(i => String(i.id) === String(id));
+    if (!a) { box.textContent = `Inventaire · ${it ? it.quantity : '?'} en stock · ajoutez les dates pour vérifier la disponibilité`; continue; }
+    let r;
+    try { r = await fetch(`/api/disponibilite?item=${id}&du=${a}&au=${b}${DOC_ID ? '&exclude=' + DOC_ID : ''}`).then(r => r.json()); } catch (e) { continue; }
+    if (!r.ok) continue;
+    // autres lignes de ce document pour le même article et des dates qui se chevauchent
+    const others = rows.filter(o => o !== tr && o.querySelector('[name=f_item]').value === id).reduce((s, o) => {
+      const oa = o.querySelector('[name=f_from]').value, ob = o.querySelector('[name=f_to]').value || oa;
+      return s + (oa && oa <= b && ob >= a ? num(o.querySelector('[name=f_qty]').value) : 0);
+    }, 0);
+    const want = num(g('f_qty').value) || 1;
+    const freeFirm = r.stock - r.firm - others, free = freeFirm - r.option;
+    if (want <= free) { box.className = 'avail ok'; box.textContent = `✓ Disponible : ${free} / ${r.stock}`; }
+    else if (want <= freeFirm) { box.className = 'avail warn'; box.textContent = `⚠ ${Math.max(free, 0)} libre(s), ${r.option} en option : ${r.docs.join(', ')}`; }
+    else { box.className = 'avail bad'; box.textContent = `✗ Manque ${want - Math.max(freeFirm, 0)} · réservé : ${r.docs.join(', ') || 'dans ce document'}`; }
+  }
 }
 const MODE = () => document.querySelector('[name=mode]:checked').value;
 function calc(){
@@ -204,8 +266,8 @@ function calc(){
     tr.querySelector('.amt').textContent = fmt(a); sub += a;
   });
   if (m !== 'hours') document.querySelectorAll('#f-body tr').forEach(tr => {
-    const qv = tr.querySelector('[name=f_qty]').value;
-    const a = (qv === '' ? 1 : num(qv)) * num(tr.querySelector('[name=f_price]').value);
+    const qv = tr.querySelector('[name=f_qty]').value, dv = tr.querySelector('[name=f_days]').value;
+    const a = (qv === '' ? 1 : num(qv)) * (dv === '' ? 1 : num(dv)) * num(tr.querySelector('[name=f_price]').value);
     tr.querySelector('.amt').textContent = fmt(a); sub += a;
   });
   const vat = Math.round(sub*VAT)/100;
@@ -235,7 +297,9 @@ async function loadClient(first){
   $('#client-info').innerHTML = [c.contact, [c.street, c.house_num].join(' ').trim(), [c.pcode, c.city].join(' ').trim(), c.email].filter(Boolean).join(' · ')
      + ` · <a href="/clients/${c.id}?next=${encodeURIComponent(location.pathname)}">modifier</a>`;
   $('#events').innerHTML = r.events.map(e => `<option value="${q(e)}">`).join('');
-  $('#flat-labels').innerHTML = (r.flat_labels || []).map(e => `<option value="${q(e)}">`).join('');
+  const invNames = new Set(ITEMS.map(i => norm(i.name)));
+  $('#flat-labels').innerHTML = ITEMS.map(i => `<option value="${q(i.name)}" label="${q([i.category, i.quantity + ' en stock', i.price_day ? fmt(i.price_day) + ' / jour' : ''].filter(Boolean).join(' · '))}">`).join('')
+    + (r.flat_labels || []).filter(e => !invNames.has(norm(e))).map(e => `<option value="${q(e)}">`).join('');
   $('#rates-hint').innerHTML = RATES.length ? 'Tarifs : ' + RATES.map(x => `${x.label} ${fmt(x.rate)}`).join(' · ')
      : `Aucun tarif pour ce client — <a href="/clients/${c.id}?next=${encodeURIComponent(location.pathname)}">en ajouter</a>`;
   if (!first) { $('#h-body').innerHTML=''; }
@@ -324,6 +388,7 @@ $('#f').addEventListener('submit', e => { if (!numOk) { e.preventDefault(); $('#
 dateChanged();
 
 (async () => {
+  $('#flat-labels').innerHTML = ITEMS.map(i => `<option value="${q(i.name)}" label="${q([i.category, i.quantity + ' en stock'].filter(Boolean).join(' · '))}">`).join('');
   if (existing.length) {
     const kinds = new Set(existing.map(l => l.kind || 'hours'));
     const m = kinds.size > 1 ? 'mixed' : (kinds.has('flat') ? 'flat' : 'hours');

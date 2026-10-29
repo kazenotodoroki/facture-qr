@@ -58,6 +58,18 @@ CREATE TABLE IF NOT EXISTS invoices (
     paid_at TEXT DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    category TEXT DEFAULT '',
+    reference TEXT DEFAULT '',
+    quantity REAL DEFAULT 1,
+    price_day REAL DEFAULT 0,
+    value REAL DEFAULT 0,
+    notes TEXT DEFAULT '',
+    archived INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS invoice_lines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
@@ -126,7 +138,8 @@ MIGRATIONS = {
                  "doc_type": "TEXT DEFAULT 'invoice'", "valid_until": "TEXT DEFAULT ''",
                  "quote_id": "INTEGER", "converted_invoice_id": "INTEGER"},
     "invoice_lines": {"start_time": "TEXT DEFAULT ''", "end_time": "TEXT DEFAULT ''",
-                      "kind": "TEXT DEFAULT 'hours'"},
+                      "kind": "TEXT DEFAULT 'hours'", "item_id": "INTEGER", "days": "REAL DEFAULT 1",
+                      "rent_from": "TEXT DEFAULT ''", "rent_to": "TEXT DEFAULT ''"},
 }
 
 

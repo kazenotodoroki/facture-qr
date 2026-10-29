@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name if item else 'Nouvel article' }}{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>{{ item.name if item else 'Nouvel article' }}</h1>
+    <div class="sub">{{ 'Fiche et réservations' if item else 'Matériel de location' }}</div></div>
+  {% if item %}<form method="post" action="{{ url_for('item_archive', item_id=item.id) }}"><button class="btn ghost">{{ 'Désarchiver' if item.archived else 'Archiver' }}</button></form>{% endif %}
+</div>
+<div class="grid" style="grid-template-columns:minmax(0,1fr) {{ 'minmax(0,1fr)' if item }};align-items:start">
+<form method="post" class="card">
+  <div class="field"><label>Nom *</label><input type="text" name="name" required value="{{ item.name if item }}" {{ 'autofocus' if not item }} placeholder="ex. Projecteur LED Robe Spiider"></div>
+  <div class="grid g2" style="gap:12px">
+    <div class="field"><label>Catégorie</label><input type="text" name="category" list="cats" value="{{ item.category if item }}" placeholder="ex. Lumière, Son, Câblage">
+      <datalist id="cats">{% for c in cats %}<option value="{{ c }}">{% endfor %}</datalist></div>
+    <div class="field"><label>Référence / n° de série</label><input type="text" name="reference" value="{{ item.reference if item }}"></div>
+  </div>
+  <div class="grid g3" style="gap:12px">
+    <div class="field"><label>Quantité en stock</label><input type="text" inputmode="decimal" name="quantity" value="{{ item.quantity|fnum if item else 1 }}"></div>
+    <div class="field"><label>Prix de location / jour CHF</label><input type="text" inputmode="decimal" name="price_day" value="{{ '%.2f'|format(item.price_day) if item else '' }}"></div>
+    <div class="field"><label>Valeur à neuf / pièce CHF</label><input type="text" inputmode="decimal" name="value" value="{{ '%.2f'|format(item.value) if item else '' }}"><div class="hint">Pour l'assurance</div></div>
+  </div>
+  <div class="field"><label>Notes</label><textarea name="notes" style="min-height:70px" placeholder="état, accessoires fournis, emplacement…">{{ item.notes if item }}</textarea></div>
+  <div class="row" style="justify-content:flex-end">
+    <a class="btn ghost" href="{{ url_for('items_list') }}">Annuler</a>
+    {% if not item %}<button class="btn" name="then" value="new">Enregistrer et ajouter un autre</button>{% endif %}
+    <button class="btn primary">Enregistrer</button>
+  </div>
+</form>
+
+{% if item %}
+<div class="grid">
+  <div class="card">
+    <h2>Réservations à venir</h2>
+    {% if upcoming %}
+    <table class="list">
+      {% for b in upcoming %}
+      <tr class="click" onclick="location='{{ url_for('invoice_view', iid=b.doc_id) }}'">
+        <td class="num" style="white-space:nowrap">{{ b.rent_from|fdate }}{% if b.rent_to != b.rent_from %}<br>→ {{ b.rent_to|fdate }}{% endif %}</td>
+        <td><b>{{ b.client_name }}</b>{% if b.event_name %}<br><span class="muted" style="font-size:12.5px">{{ b.event_name }}</span>{% endif %}</td>
+        <td class="muted" style="white-space:nowrap">{{ b.number }}</td>
+        <td class="r num" style="white-space:nowrap">{{ b.quantity|fnum }} pce</td>
+        <td><span class="badge {{ 'payée' if b.firm else 'expired' }}">{{ 'Ferme' if b.firm else 'Option' }}</span></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="muted" style="margin:0">Aucune réservation à venir.</p>{% endif %}
+  </div>
+  {% if past %}
+  <div class="card">
+    <h2>Dernières locations</h2>
+    <table class="list">
+      {% for b in past %}
+      <tr class="click" onclick="location='{{ url_for('invoice_view', iid=b.doc_id) }}'">
+        <td class="num muted">{{ b.rent_from|fdate }}</td><td>{{ b.client_name }}</td><td class="muted">{{ b.number }}</td><td class="r num">{{ b.quantity|fnum }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+</div>
+{% endblock %}

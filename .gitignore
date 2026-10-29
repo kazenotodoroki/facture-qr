@@ -1,0 +1,12 @@
+# Données locales (clients, factures, mot de passe SMTP) : ne jamais publier
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Systèmes
+.DS_Store
+Thumbs.db

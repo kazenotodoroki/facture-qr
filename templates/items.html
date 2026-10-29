@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Inventaire{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>Inventaire</h1>
+    <div class="sub">{{ items|length }} article{{ 's' if items|length > 1 }}{{ ' archivé(s)' if show_archived }} · valeur à neuf CHF {{ total_value|chf }}</div></div>
+  <div class="row">
+    <a class="btn ghost" href="{{ url_for('items_list', archives='0' if show_archived else '1') }}">{{ 'Articles actifs' if show_archived else 'Archives' }}</a>
+    <a class="btn" href="{{ url_for('items_list', format='csv', du=d1, au=d2) }}">Export CSV</a>
+    <a class="btn primary" href="{{ url_for('item_edit') }}">+ Nouvel article</a>
+  </div>
+</div>
+
+<form class="card row" style="padding:14px;margin-bottom:16px;gap:12px" method="get">
+  {% if show_archived %}<input type="hidden" name="archives" value="1">{% endif %}
+  <div class="search" style="flex:2;min-width:220px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input type="text" id="iq" placeholder="Rechercher : nom, catégorie, référence…" autocomplete="off"></div>
+  <span class="muted">Disponibilité du</span>
+  <input type="date" name="du" value="{{ d1 }}" style="width:160px" onchange="this.form.submit()">
+  <span class="muted">au</span>
+  <input type="date" name="au" value="{{ d2 }}" style="width:160px" onchange="this.form.submit()">
+  {% if d1 != today or d2 != today %}<a class="btn ghost" href="{{ url_for('items_list') }}">Aujourd'hui</a>{% endif %}
+</form>
+<div class="row" style="margin:-4px 0 16px;gap:8px">
+  <span class="muted">Pour la période :</span>
+  <a class="btn sm" href="{{ url_for('period_packlist', mode='chargement', du=d1, au=d2) }}" target="_blank">Chargements (PDF)</a>
+  <a class="btn sm" href="{{ url_for('period_packlist', mode='retour', du=d1, au=d2) }}" target="_blank">Retours (PDF)</a>
+  <span class="hint" style="margin:0">Départs ou retours prévus {{ 'le ' ~ d1|fdate if d1 == d2 else 'du ' ~ d1|fdate ~ ' au ' ~ d2|fdate }}, un document par page (factures et devis acceptés).</span>
+</div>
+
+{% if cats %}
+<div class="chips" style="margin-bottom:14px" id="cats">
+  <button type="button" class="chip on" data-c="">Tout</button>
+  {% for c in cats %}<button type="button" class="chip" data-c="{{ c }}">{{ c }}</button>{% endfor %}
+</div>
+{% endif %}
+
+<div class="card" style="padding:8px 10px">
+{% if items %}
+<table class="list">
+  <tr><th>Article</th><th>Catégorie</th><th class="r">Stock</th><th class="r">Réservé</th><th class="r">Options</th><th class="r">Disponible</th><th class="r">Prix / jour</th><th class="r">Valeur</th></tr>
+  {% for it in items %}
+  <tr class="click irow" data-s="{{ [it.name, it.category, it.reference, it.notes]|join(' ') }}" data-c="{{ it.category }}" onclick="location='{{ url_for('item_edit', item_id=it.id) }}'">
+    <td><div class="strong">{{ it.name }}</div>{% if it.reference %}<div class="muted" style="font-size:12.5px">{{ it.reference }}</div>{% endif %}</td>
+    <td class="muted">{{ it.category or '—' }}</td>
+    <td class="r num">{{ it.quantity|fnum }}</td>
+    <td class="r num">{{ it.firm|fnum if it.firm else '—' }}</td>
+    <td class="r num muted">{{ it.option|fnum if it.option else '—' }}</td>
+    <td class="r"><span class="badge {{ 'late' if it.free < 0 else ('expired' if it.free == 0 else 'payée') }}">{{ it.free|fnum }}</span></td>
+    <td class="r num">{{ it.price_day|chf }}</td>
+    <td class="r num muted">{{ (it.value * it.quantity)|chf }}</td>
+  </tr>
+  {% endfor %}
+</table>
+<div class="empty hidden" id="noresult"><b>Aucun article trouvé</b>Essayez un autre mot-clé.</div>
+<div class="hint" style="padding:10px 12px 4px">Réservé = factures et devis acceptés · Options = devis envoyés encore valables. Seules les lignes avec des dates de location sont comptées. {% if d1 == d2 %}Période : {{ d1|fdate }}.{% else %}Période : du {{ d1|fdate }} au {{ d2|fdate }}.{% endif %}</div>
+{% else %}
+<div class="empty"><b>{{ 'Aucun article archivé' if show_archived else 'Inventaire vide' }}</b>{% if not show_archived %}Ajoutez votre matériel de location : quantité, prix par jour, valeur à neuf.{% endif %}</div>
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+let cat = '';
+function filter(){
+  const words = norm(document.getElementById('iq').value).split(/\s+/).filter(Boolean);
+  let n = 0;
+  document.querySelectorAll('.irow').forEach(r => {
+    const ok = (!cat || r.dataset.c === cat) && words.every(w => norm(r.dataset.s).includes(w));
+    r.classList.toggle('hidden', !ok); n += ok;
+  });
+  const nr = document.getElementById('noresult'); if (nr) nr.classList.toggle('hidden', n > 0);
+}
+document.getElementById('iq').addEventListener('input', filter);
+document.querySelectorAll('#cats .chip').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#cats .chip').forEach(x => x.classList.remove('on')); b.classList.add('on'); cat = b.dataset.c; filter();
+});
+</script>
+{% endblock %}

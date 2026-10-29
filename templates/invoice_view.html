@@ -52,6 +52,17 @@
       <a class="link-card" href="{{ url_for('invoice_view', iid=links.quote.id) }}"><span>Devis <b>{{ links.quote.number }}</b></span><span>→</span></a></div>
     {% endif %}
 
+    {% if n_rental %}
+    <div class="card">
+      <h2>Matériel</h2>
+      <p class="muted" style="margin-top:0">{{ n_rental }} ligne{{ 's' if n_rental > 1 }} de location. Listes à imprimer pour le dépôt :</p>
+      <div class="grid" style="gap:8px">
+        <a class="btn" href="{{ url_for('doc_packlist', iid=inv.id, mode='chargement') }}" target="_blank">Liste de chargement (PDF)</a>
+        <a class="btn" href="{{ url_for('doc_packlist', iid=inv.id, mode='retour') }}" target="_blank">Bon de retour (PDF)</a>
+      </div>
+    </div>
+    {% endif %}
+
     <div class="card">
       <h2>Statut</h2>
       <form method="post" action="{{ url_for('invoice_status', iid=inv.id) }}" class="grid" style="gap:10px">
