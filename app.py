@@ -23,7 +23,7 @@ import packlist
 from pdfgen import chf, fdate, fnum, generate_invoice_pdf, hours_between
 from references import format_reference, is_qr_iban, make_reference
 
-VERSION = "1.8 · 29.10.2026"
+VERSION = "1.9 · 01.11.2026"
 
 app = Flask(__name__)
 app.secret_key = "factureqr-local"
@@ -346,10 +346,19 @@ def invoice_form(iid=None, doc_type="invoice"):
             flash(f"{'Ce devis' if doc_type == 'quote' else 'Cette facture'} a déjà été envoyé{'' if doc_type == 'quote' else 'e'} : "
                   "modifiez avec prudence.", "warn")
     preset_client = request.args.get("client", type=int)
+    # articles choisis depuis l'inventaire : ?articles=3:2,5:1&du=AAAA-MM-JJ&au=AAAA-MM-JJ
+    preset_items = []
+    for part in request.args.get("articles", "").split(","):
+        iid_s, _, qty_s = part.partition(":")
+        if iid_s.isdigit():
+            preset_items.append(dict(item_id=int(iid_s), quantity=_num(qty_s, 1.0) or 1.0,
+                                     rent_from=request.args.get("du", ""),
+                                     rent_to=request.args.get("au", "") or request.args.get("du", "")))
     with db.connect() as conn:
         items = [dict(r) for r in conn.execute("""SELECT id, name, category, reference, quantity, price_day
             FROM items WHERE archived=0 ORDER BY category COLLATE NOCASE, name COLLATE NOCASE""")]
     return render_template("invoice_form.html", clients=[dict(c) for c in all_clients], inv=inv, lines=lines, items=items,
+                           preset_items=preset_items,
                            preset_client=preset_client, payment_days=int(s.get("payment_days") or 30),
                            Q=doc_type == "quote", validity_days=int(s.get("quote_validity_days") or 30))
 
@@ -803,6 +812,18 @@ def period_packlist(mode):
     name = f"{'Chargements' if mode == 'chargement' else 'Retours'}_{d1}{'_' + d2 if d2 != d1 else ''}.pdf"
     return send_file(buf, mimetype="application/pdf", as_attachment=request.args.get("dl") == "1",
                      download_name=name)
+
+
+@app.get("/api/disponibilites")
+def api_availabilities():
+    """Réservations de tous les articles sur une période : {id: {firm, option}}."""
+    d1 = request.args.get("du", "")
+    d2 = request.args.get("au", "") or d1
+    if not d1:
+        return jsonify({})
+    with db.connect() as conn:
+        av = inventory.availability(conn, min(d1, d2), max(d1, d2), request.args.get("exclude", type=int))
+    return jsonify({str(k): v for k, v in av.items()})
 
 
 @app.get("/api/disponibilite")

@@ -35,12 +35,21 @@
 </div>
 {% endif %}
 
+<div class="selbar hidden" id="selbar">
+  <span><b id="isn">0</b> article(s) sélectionné(s) · période {{ d1|fdate }}{% if d2 != d1 %} – {{ d2|fdate }}{% endif %}</span>
+  <div class="row" style="gap:8px">
+    <button type="button" class="btn sm ghost" onclick="selItems(false)">Désélectionner</button>
+    <button type="button" class="btn sm" onclick="goDoc('{{ url_for('quote_form') }}')">Faire un devis</button>
+    <button type="button" class="btn sm primary" onclick="goDoc('{{ url_for('invoice_form') }}')">Facturer la sélection →</button>
+  </div>
+</div>
 <div class="card" style="padding:8px 10px">
 {% if items %}
 <table class="list">
-  <tr><th>Article</th><th>Catégorie</th><th class="r">Stock</th><th class="r">Réservé</th><th class="r">Options</th><th class="r">Disponible</th><th class="r">Prix / jour</th><th class="r">Valeur</th></tr>
+  <tr><th style="width:34px">{% if not show_archived %}<input type="checkbox" id="isall" title="Tout sélectionner">{% endif %}</th><th>Article</th><th>Catégorie</th><th class="r">Stock</th><th class="r">Réservé</th><th class="r">Options</th><th class="r">Disponible</th><th class="r">Prix / jour</th><th class="r">Valeur</th></tr>
   {% for it in items %}
   <tr class="click irow" data-s="{{ [it.name, it.category, it.reference, it.notes]|join(' ') }}" data-c="{{ it.category }}" onclick="location='{{ url_for('item_edit', item_id=it.id) }}'">
+    <td onclick="event.stopPropagation()">{% if not show_archived %}<input type="checkbox" class="isel" value="{{ it.id }}">{% endif %}</td>
     <td><div class="strong">{{ it.name }}</div>{% if it.reference %}<div class="muted" style="font-size:12.5px">{{ it.reference }}</div>{% endif %}</td>
     <td class="muted">{{ it.category or '—' }}</td>
     <td class="r num">{{ it.quantity|fnum }}</td>
@@ -73,6 +82,19 @@ function filter(){
   const nr = document.getElementById('noresult'); if (nr) nr.classList.toggle('hidden', n > 0);
 }
 document.getElementById('iq').addEventListener('input', filter);
+const iboxes = () => [...document.querySelectorAll('.isel')];
+function updSel(){
+  const n = iboxes().filter(b => b.checked).length;
+  document.getElementById('isn').textContent = n;
+  document.getElementById('selbar').classList.toggle('hidden', !n);
+}
+function selItems(v){ iboxes().forEach(b => { if (!v || !b.closest('tr').classList.contains('hidden')) b.checked = v; }); const a = document.getElementById('isall'); if (a) a.checked = v; updSel(); }
+iboxes().forEach(b => b.addEventListener('change', updSel));
+const isall = document.getElementById('isall'); if (isall) isall.addEventListener('change', () => selItems(isall.checked));
+function goDoc(base){
+  const ids = iboxes().filter(b => b.checked).map(b => b.value + ':1').join(',');
+  location = `${base}?articles=${ids}&du={{ d1 }}&au={{ d2 }}`;
+}
 document.querySelectorAll('#cats .chip').forEach(b => b.onclick = () => {
   document.querySelectorAll('#cats .chip').forEach(x => x.classList.remove('on')); b.classList.add('on'); cat = b.dataset.c; filter();
 });

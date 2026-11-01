@@ -21,7 +21,9 @@ Logiciel de facturation suisse pour indépendants et petites structures du spect
 
 ### Location et inventaire
 - **Inventaire** : stock, catégories, référence / n° de série, prix de location par jour, valeur à neuf (assurance), export CSV
-- Choix des articles dans les factures et devis, avec **dates de location** et nombre de jours (montant = qté × jours × prix)
+- Bouton **« + Matériel de l'inventaire »** dans les factures et les devis : recherche, filtre par catégorie, quantités, dates de location et disponibilité affichée pour chaque article
+- Depuis l'inventaire, **cochez des articles puis « Facturer la sélection »** (ou « Faire un devis ») ; depuis la fiche d'un article, « Facturer cet article »
+- Lignes de location avec **dates** et nombre de jours (montant = qté × jours × prix)
 - **Disponibilité en direct** pendant la saisie et par période : réservé (factures, devis acceptés), en option (devis envoyés), disponible
 - Fiche article avec réservations à venir et historique des locations
 - **PDF de logistique** :
@@ -76,7 +78,7 @@ Le navigateur s'ouvre sur http://127.0.0.1:5000. Laissez la fenêtre de terminal
 3. **Paramètres → Apparence** : couleurs et textes de l'e-mail et du PDF.
 4. **Paramètres → Sauvegarde** : chemin d'un dossier de votre Google Drive (ex. `G:\Mon Drive\Factures`).
 5. **Clients** : ajoutez vos clients et leurs tarifs.
-6. **Inventaire** (si vous louez du matériel) : ajoutez vos articles.
+6. **Inventaire** (si vous louez du matériel) : ajoutez vos articles ; ils s'ajoutent ensuite à une facture avec le bouton « + Matériel de l'inventaire ».
 7. **+ Nouvelle facture** ou **+ Nouveau devis**.
 
 ## Données et confidentialité

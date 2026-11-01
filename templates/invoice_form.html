@@ -49,6 +49,9 @@
       <input type="radio" name="mode" id="m-f" value="flat"><label for="m-f">Forfait / location</label>
       <input type="radio" name="mode" id="m-x" value="mixed"><label for="m-x">Heures + forfait / location</label>
     </div>
+    <button type="button" class="btn inv-btn" onclick="openPicker()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>
+      + Matériel de l'inventaire</button>
 
     <div id="hours" style="margin-top:16px">
       <div class="sec-title">Heures</div>
@@ -68,8 +71,9 @@
         <tbody id="f-body"></tbody>
       </table>
       <datalist id="flat-labels"></datalist>
-      <div class="row"><button type="button" class="btn sm" onclick="addF()">+ Ajouter un forfait / une location</button>
-        <span class="hint" style="margin:0">Tapez le nom d'un article de l'<a href="{{ url_for('items_list') }}" target="_blank">inventaire</a> pour reprendre son prix et vérifier sa disponibilité. Montant = qté × jours × prix.</span></div>
+      <div class="row"><button type="button" class="btn sm" onclick="openPicker()">+ Matériel de l'inventaire</button>
+        <button type="button" class="btn sm ghost" onclick="addF()">+ Ligne libre (forfait, transport…)</button>
+        <span class="hint" style="margin:0">Montant = qté × jours × prix.</span></div>
     </div>
 
     <div class="totals">
@@ -120,6 +124,36 @@
   <button class="btn primary" name="then" value="send">Enregistrer et envoyer →</button>
 </div>
 </form>
+
+<dialog id="picker" class="picker">
+  <div class="pk-head">
+    <div><h2 style="margin:0">Matériel de l'inventaire</h2>
+      <div class="hint" style="margin:2px 0 0">Cochez les articles et indiquez les quantités. La disponibilité tient compte des autres factures et devis.</div></div>
+    <button type="button" class="x" onclick="$('#picker').close()" title="Fermer">×</button>
+  </div>
+  {% if items %}
+  <div class="pk-bar">
+    <div class="search" style="flex:1;min-width:200px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input type="text" id="pk-q" placeholder="Rechercher : nom, catégorie, référence…" autocomplete="off"></div>
+    <label class="pk-date">Du <input type="date" id="pk-from"></label>
+    <label class="pk-date">Au <input type="date" id="pk-to"></label>
+  </div>
+  <div class="chips" id="pk-cats" style="padding:0 22px 10px"></div>
+  <div class="pk-list"><table class="list" id="pk-table">
+    <thead><tr><th style="width:34px"></th><th>Article</th><th class="r">Stock</th><th class="r">Disponible</th><th class="r">Prix / jour</th><th style="width:90px">Qté</th></tr></thead>
+    <tbody></tbody></table>
+    <div class="empty hidden" id="pk-none"><b>Aucun article trouvé</b></div>
+  </div>
+  <div class="pk-foot">
+    <span class="muted" id="pk-sum">Aucun article sélectionné</span>
+    <div class="row"><a class="btn ghost" href="{{ url_for('item_edit') }}" target="_blank">+ Nouvel article</a>
+      <button type="button" class="btn primary" id="pk-add" onclick="addPicked()" disabled>Ajouter</button></div>
+  </div>
+  {% else %}
+  <div class="empty" style="padding:40px 22px"><b>Inventaire vide</b>Ajoutez d'abord votre matériel (nom, quantité, prix par jour).
+    <div style="margin-top:14px"><a class="btn primary" href="{{ url_for('item_edit') }}" target="_blank">+ Nouvel article</a></div></div>
+  {% endif %}
+</dialog>
 {% endblock %}
 
 {% block scripts %}
@@ -230,6 +264,111 @@ function addF(l){
   $('#f-body').appendChild(tr);
   calc(); checkAll();
 }
+// ---- sélecteur de matériel ----
+const PRESET = {{ preset_items|tojson }};
+let pkAv = {}, pkCat = '';
+const pkSel = new Map();   // item_id -> quantité
+function pkDefaults(){
+  const rows = [...document.querySelectorAll('#f-body tr')].reverse();
+  for (const r of rows) { const a = r.querySelector('[name=f_from]').value; if (a) return [a, r.querySelector('[name=f_to]').value || a]; }
+  if ($('#ev1').checked && document.querySelector('[name=event_date]').value) { const d = document.querySelector('[name=event_date]').value; return [d, d]; }
+  return ['', ''];
+}
+function inForm(id, a, b){
+  return [...document.querySelectorAll('#f-body tr')].filter(r => r.querySelector('[name=f_item]').value === String(id)).reduce((s, r) => {
+    const ra = r.querySelector('[name=f_from]').value, rb = r.querySelector('[name=f_to]').value || ra;
+    return s + (a && ra && ra <= (b || a) && rb >= a ? num(r.querySelector('[name=f_qty]').value) : 0);
+  }, 0);
+}
+function openPicker(){
+  if (!ITEMS.length) { $('#picker').showModal(); return; }
+  const [a, b] = pkDefaults();
+  if (!$('#pk-from').value) { $('#pk-from').value = a; $('#pk-to').value = b; }
+  pkSel.clear(); $('#pk-q').value = ''; pkCat = '';
+  const cats = [...new Set(ITEMS.map(i => i.category).filter(Boolean))].sort((x, y) => x.localeCompare(y));
+  $('#pk-cats').innerHTML = cats.length ? ['', ...cats].map(c => `<button type="button" class="chip ${c === '' ? 'on' : ''}" data-c="${q(c)}">${c ? q(c) : 'Tout'}</button>`).join('') : '';
+  $('#pk-cats').querySelectorAll('.chip').forEach(b => b.onclick = () => {
+    $('#pk-cats').querySelectorAll('.chip').forEach(x => x.classList.remove('on')); b.classList.add('on'); pkCat = b.dataset.c; pkRender();
+  });
+  $('#picker').showModal(); pkLoad(); setTimeout(() => $('#pk-q').focus(), 50);
+}
+async function pkLoad(){
+  const a = $('#pk-from').value, b = $('#pk-to').value || a;
+  pkAv = {};
+  if (a) { try { pkAv = await fetch(`/api/disponibilites?du=${a}&au=${b}${DOC_ID ? '&exclude=' + DOC_ID : ''}`).then(r => r.json()); } catch (e) {} }
+  pkRender();
+}
+function pkRender(){
+  const a = $('#pk-from').value, b = $('#pk-to').value || a;
+  const words = norm($('#pk-q').value).split(/\s+/).filter(Boolean);
+  const rows = ITEMS.filter(i => (!pkCat || i.category === pkCat) && words.every(w => norm([i.name, i.category, i.reference].join(' ')).includes(w)));
+  $('#pk-table tbody').innerHTML = rows.map(i => {
+    const av = pkAv[i.id] || {firm: 0, option: 0};
+    const free = i.quantity - av.firm - av.option - inForm(i.id, a, b);
+    const cls = !a ? 'muted' : (free <= 0 ? 'bad' : (av.option ? 'warn' : 'ok'));
+    const sel = pkSel.has(i.id);
+    return `<tr class="${sel ? 'pk-on' : ''}" data-id="${i.id}">
+      <td><input type="checkbox" ${sel ? 'checked' : ''}></td>
+      <td><b>${q(i.name)}</b><div class="muted" style="font-size:12.5px">${q([i.category, i.reference].filter(Boolean).join(' · '))}</div></td>
+      <td class="r num">${i.quantity}</td>
+      <td class="r num"><span class="avail ${cls}" style="margin:0">${a ? free + (av.option ? ' <small>(' + av.option + ' en option)</small>' : '') : '—'}</span></td>
+      <td class="r num">${i.price_day ? fmt(i.price_day) : '—'}</td>
+      <td><input type="text" inputmode="decimal" class="pk-qty" value="${sel ? pkSel.get(i.id) : 1}"></td></tr>`;
+  }).join('');
+  $('#pk-none').classList.toggle('hidden', rows.length > 0);
+  $('#pk-table tbody').querySelectorAll('tr').forEach(tr => {
+    const id = +tr.dataset.id, cb = tr.querySelector('[type=checkbox]'), qty = tr.querySelector('.pk-qty');
+    const toggle = on => { if (on) pkSel.set(id, num(qty.value) || 1); else pkSel.delete(id); tr.classList.toggle('pk-on', on); cb.checked = on; pkSum(); };
+    cb.onchange = () => toggle(cb.checked);
+    tr.onclick = e => { if (e.target === cb || e.target === qty) return; toggle(!pkSel.has(id)); };
+    qty.oninput = () => { if (num(qty.value) > 0) { if (!pkSel.has(id)) toggle(true); else { pkSel.set(id, num(qty.value)); pkSum(); } } };
+    qty.onfocus = () => qty.select();
+  });
+  pkSum();
+}
+function pkSum(){
+  const n = pkSel.size, pcs = [...pkSel.values()].reduce((s, v) => s + v, 0);
+  $('#pk-sum').textContent = n ? `${n} article${n > 1 ? 's' : ''} · ${pcs} pièce${pcs > 1 ? 's' : ''}` : 'Aucun article sélectionné';
+  $('#pk-add').disabled = !n;
+  $('#pk-add').textContent = n ? `Ajouter ${n} article${n > 1 ? 's' : ''}` : 'Ajouter';
+}
+function ensureFlatMode(){
+  const m = MODE();
+  if (m === 'hours') {
+    // on garde les heures déjà saisies : passage en « heures + forfait / location »
+    const hasHours = [...document.querySelectorAll('#h-body [name=h_qty]')].some(i => num(i.value) > 0);
+    document.querySelector(`[name=mode][value=${hasHours ? 'mixed' : 'flat'}]`).checked = true;
+    syncUI();
+  }
+  // retire les lignes de forfait encore vides
+  document.querySelectorAll('#f-body tr').forEach(r => {
+    if (!r.querySelector('[name=f_label]').value.trim() && !num(r.querySelector('[name=f_price]').value)) r.remove();
+  });
+}
+function addItemRows(list){
+  ensureFlatMode();
+  list.forEach(p => {
+    const it = ITEMS.find(i => i.id === p.item_id); if (!it) return;
+    const a = p.rent_from || '', b = p.rent_to || a;
+    addF({rate_label: it.name, item_id: it.id, quantity: p.quantity, unit_price: it.price_day || '',
+          rent_from: a, rent_to: b, days: a && b ? daysBetween(a, b) : 1, description: ''});
+  });
+  calc(); checkAll();
+}
+function addPicked(){
+  const a = $('#pk-from').value, b = $('#pk-to').value || a;
+  const list = ITEMS.filter(i => pkSel.has(i.id)).map(i => ({item_id: i.id, quantity: pkSel.get(i.id), rent_from: a, rent_to: b}));
+  $('#picker').close();
+  addItemRows(list);
+  document.getElementById('flat').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+if (ITEMS.length) {
+  $('#pk-q').addEventListener('input', pkRender);
+  $('#pk-from').addEventListener('change', () => { if (!$('#pk-to').value || $('#pk-to').value < $('#pk-from').value) $('#pk-to').value = $('#pk-from').value; pkLoad(); });
+  $('#pk-to').addEventListener('change', pkLoad);
+  $('#pk-q').addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+}
+
 // ---- disponibilité du matériel ----
 let ct;
 function checkAll(){ clearTimeout(ct); ct = setTimeout(_checkAll, 300); }
@@ -399,7 +538,9 @@ dateChanged();
     $('#h-body').innerHTML=''; $('#f-body').innerHTML='';
     existing.forEach(l => (l.kind || 'hours') === 'hours' ? addH(l) : addF(l));
   }
+  if (PRESET.length && !existing.length) document.querySelector('[name=mode][value=flat]').checked = true;
   syncUI();
+  if (PRESET.length) addItemRows(PRESET);
   if (!$('#client').value) cq.focus();
 })();
 </script>

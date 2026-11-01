@@ -4,7 +4,13 @@
 <div class="head">
   <div><h1>{{ item.name if item else 'Nouvel article' }}</h1>
     <div class="sub">{{ 'Fiche et réservations' if item else 'Matériel de location' }}</div></div>
-  {% if item %}<form method="post" action="{{ url_for('item_archive', item_id=item.id) }}"><button class="btn ghost">{{ 'Désarchiver' if item.archived else 'Archiver' }}</button></form>{% endif %}
+  {% if item %}<div class="row" style="gap:8px">
+    <form method="post" action="{{ url_for('item_archive', item_id=item.id) }}"><button class="btn ghost">{{ 'Désarchiver' if item.archived else 'Archiver' }}</button></form>
+    {% if not item.archived %}
+    <a class="btn" href="{{ url_for('quote_form', articles=item.id ~ ':1') }}">Faire un devis</a>
+    <a class="btn primary" href="{{ url_for('invoice_form', articles=item.id ~ ':1') }}">Facturer cet article →</a>
+    {% endif %}
+  </div>{% endif %}
 </div>
 <div class="grid" style="grid-template-columns:minmax(0,1fr) {{ 'minmax(0,1fr)' if item }};align-items:start">
 <form method="post" class="card">

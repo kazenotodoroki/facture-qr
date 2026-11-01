@@ -140,3 +140,25 @@ aside .cta2:hover{background:rgba(255,255,255,.08)}
 .avail{font-size:12px;margin-top:4px;color:var(--muted);min-height:15px}
 .avail.ok{color:var(--ok)}.avail.warn{color:var(--warn)}.avail.bad{color:var(--err);font-weight:600}
 .lines .narrow input{padding-left:8px;padding-right:6px}
+.inv-btn{margin-left:10px;vertical-align:top;height:44px}
+dialog.picker{width:min(900px,96vw);max-height:88vh;padding:0;display:none;flex-direction:column}
+dialog.picker[open]{display:flex}
+.pk-head{display:flex;justify-content:space-between;align-items:flex-start;padding:20px 22px 12px}
+.pk-bar{display:flex;gap:12px;align-items:center;padding:0 22px 12px;flex-wrap:wrap}
+.pk-date{display:flex;align-items:center;gap:6px;margin:0;font-weight:500;color:var(--muted)}
+.pk-date input{width:150px}
+.pk-list{overflow:auto;flex:1;min-height:200px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:0 12px}
+.pk-list table.list th{position:sticky;top:0;background:#fff;z-index:1}
+.pk-list tr{cursor:pointer}.pk-list tr:hover td{background:#FAFAF8}
+.pk-list tr.pk-on td{background:var(--brand-soft)}
+.pk-list .pk-qty{padding:6px 8px;width:70px}
+.pk-foot{display:flex;justify-content:space-between;align-items:center;padding:14px 22px;gap:12px}
+.avail small{font-weight:400}
+.selbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 14px;margin-bottom:12px;border-radius:12px;background:var(--ink);color:#fff;position:sticky;top:10px;z-index:5}
+.selbar .btn.ghost{color:#fff}.selbar .btn.ghost:hover{background:rgba(255,255,255,.1)}
+.selbar .btn{background:transparent;color:#fff;border-color:rgba(255,255,255,.35)}
+.selbar .btn:hover{background:rgba(255,255,255,.1)}
+.selbar .btn.primary{background:#fff;color:var(--ink);border-color:#fff}
+.selbar .btn.primary:hover{background:#F3F4F6}
+.selbar .btn.ghost{border-color:transparent}
+.pk-list .avail{font-size:13px;font-weight:600}
