@@ -86,6 +86,8 @@ table.list tr.click{cursor:pointer}table.list tr.click:hover td{background:#FAFA
 .totals{margin-left:auto;width:320px;margin-top:10px}
 .totals div{display:flex;justify-content:space-between;padding:5px 0;font-variant-numeric:tabular-nums}
 .totals .grand{border-top:1px solid var(--line);margin-top:6px;padding-top:12px;font-size:20px;font-weight:650;letter-spacing:-.3px}
+.disc{margin-top:22px;padding-top:4px}
+.disc .hint{margin-top:6px}
 .chips{display:flex;gap:8px;flex-wrap:wrap}
 .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer;font-weight:500}
 .chip:hover{border-color:#A1A1AA}

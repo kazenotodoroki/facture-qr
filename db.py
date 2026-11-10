@@ -132,7 +132,11 @@ def connect():
 
 
 MIGRATIONS = {
-    "invoices": {"show_vat": "INTEGER DEFAULT 0", "show_terms": "INTEGER DEFAULT 1",
+    "clients": {"discount_pct": "REAL DEFAULT 0", "discount_label": "TEXT DEFAULT ''",
+                "discount_auto": "INTEGER DEFAULT 1"},
+    "invoices": {"discount_type": "TEXT DEFAULT ''", "discount_value": "REAL DEFAULT 0",
+                 "discount_label": "TEXT DEFAULT ''", "discount_amount": "REAL DEFAULT 0",
+                 "show_vat": "INTEGER DEFAULT 0", "show_terms": "INTEGER DEFAULT 1",
                  "show_timesheet": "INTEGER DEFAULT 0", "summary_mode": "TEXT DEFAULT 'lines'",
                  "show_due": "INTEGER DEFAULT 1",
                  "doc_type": "TEXT DEFAULT 'invoice'", "valid_until": "TEXT DEFAULT ''",

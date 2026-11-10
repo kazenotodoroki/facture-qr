@@ -12,6 +12,8 @@ Logiciel de facturation suisse pour indépendants et petites structures du spect
 - PDF soigné avec **bulletin QR suisse** conforme (SIX / ISO 20022), référence QRR ou SCOR générée automatiquement
 - Factures sur **plusieurs pages** (« À reporter / Report », « Page x / N »), lignes de hauteur identique
 - Afficher ou non l'échéance et les modalités de paiement (réglage général, modifiable par facture)
+- **Rabais** en pourcentage ou en montant, avec libellé libre (« Rabais fidélité », « Geste commercial »…), sur les factures et les devis ; la TVA et le bulletin QR sont calculés sur le montant après rabais
+- **Rabais habituel par client**, appliqué automatiquement ou seulement proposé, et toujours modifiable ou supprimable sur chaque document
 - **Factures antidatées**, **numérotation séquentielle ou aléatoire**, numéro modifiable sur chaque facture
 
 ### Devis
@@ -77,7 +79,7 @@ Le navigateur s'ouvre sur http://127.0.0.1:5000. Laissez la fenêtre de terminal
 2. **Paramètres → Envoi e-mail** : serveur SMTP (préréglages Infomaniak, Gmail, Outlook, Bluewin, Hostpoint), puis « Tester la connexion ». Avec Gmail, utilisez un *mot de passe d'application* (validation en deux étapes requise).
 3. **Paramètres → Apparence** : couleurs et textes de l'e-mail et du PDF.
 4. **Paramètres → Sauvegarde** : chemin d'un dossier de votre Google Drive (ex. `G:\Mon Drive\Factures`).
-5. **Clients** : ajoutez vos clients et leurs tarifs.
+5. **Clients** : ajoutez vos clients, leurs tarifs et, si besoin, leur rabais habituel.
 6. **Inventaire** (si vous louez du matériel) : ajoutez vos articles ; ils s'ajoutent ensuite à une facture avec le bouton « + Matériel de l'inventaire ».
 7. **+ Nouvelle facture** ou **+ Nouveau devis**.
 

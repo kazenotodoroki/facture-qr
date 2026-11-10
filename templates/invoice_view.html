@@ -29,6 +29,7 @@
         {% else %}<dt>Échéance</dt><dd>{{ inv.due_date|fdate }}{% if not inv.show_due %} <span class="muted">(masquée)</span>{% endif %}</dd>{% endif %}
         {% set hl = lines|selectattr('kind', 'equalto', 'hours')|list %}{% set fl = lines|selectattr('kind', 'equalto', 'flat')|list %}
         <dt>Contenu</dt><dd>{% if hl %}{{ (hl|sum(attribute='quantity'))|round(2)|fnum }} h{% endif %}{% if hl and fl %} + {% endif %}{% if fl %}{{ fl|length }} forfait{{ 's' if fl|length > 1 }} / location{{ 's' if fl|length > 1 }}{% endif %}</dd>
+        {% if inv.discount_amount %}<dt>Rabais</dt><dd>{{ inv.discount_label or 'Rabais' }}{% if inv.discount_type == 'pct' %} {{ inv.discount_value|fnum }} %{% endif %} · −{{ inv.discount_amount|chf }}</dd>{% endif %}
         {% if inv.event_name %}<dt>Événement</dt><dd>{{ inv.event_name }}{% if inv.event_date %}<br><span class="muted">{{ inv.event_date|fdate }} {{ inv.event_place }}</span>{% endif %}</dd>{% endif %}
         {% if not Q %}<dt>Référence</dt><dd style="font-size:12.5px;font-family:ui-monospace,monospace">{{ inv.reference|fref }}</dd>{% endif %}
         <dt>Envoyé{{ '' if Q else 'e' }}</dt><dd>{{ inv.sent_at|fdate if inv.sent_at else '—' }}{% if inv.sent_at %}<br><span class="muted" style="font-size:12.5px">{{ inv.sent_at[11:] }} · {{ inv.sent_to }}</span>{% endif %}</dd>

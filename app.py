@@ -23,7 +23,7 @@ import packlist
 from pdfgen import chf, fdate, fnum, generate_invoice_pdf, hours_between
 from references import format_reference, is_qr_iban, make_reference
 
-VERSION = "1.9 · 01.11.2026"
+VERSION = "1.10 · 10.11.2026"
 
 app = Flask(__name__)
 app.secret_key = "factureqr-local"
@@ -119,7 +119,8 @@ def clients():
 @app.route("/clients/nouveau", methods=["GET", "POST"])
 @app.route("/clients/<int:cid>", methods=["GET", "POST"])
 def client_edit(cid=None):
-    fields = ["name", "contact", "street", "house_num", "pcode", "city", "country", "email", "cc_email", "notes"]
+    fields = ["name", "contact", "street", "house_num", "pcode", "city", "country", "email", "cc_email", "notes",
+              "discount_pct", "discount_label", "discount_auto"]
     if request.method == "POST":
         f = request.form
         vals = [f.get(k, "").strip() for k in fields]
@@ -127,6 +128,12 @@ def client_edit(cid=None):
             flash("Le nom du client est obligatoire.", "error")
             return redirect(request.url)
         vals[6] = (vals[6] or "CH").upper()[:2]
+        pct = _num(vals[10])
+        if not 0 <= pct <= 100:
+            flash("Le rabais doit être compris entre 0 et 100 %.", "error")
+            return redirect(request.url)
+        vals[10] = pct
+        vals[12] = 1 if f.get("discount_auto") else 0
         with db.connect() as conn:
             if cid:
                 conn.execute(f"UPDATE clients SET {', '.join(k + '=?' for k in fields)} WHERE id=?", vals + [cid])
@@ -297,19 +304,19 @@ def _list_docs(doc_type):
         buf = io.StringIO()
         w = csv.writer(buf, delimiter=";")
         if quote:
-            w.writerow(["Numéro", "Date", "Valable jusqu'au", "Client", "Événement", "Type", "Sous-total",
+            w.writerow(["Numéro", "Date", "Valable jusqu'au", "Client", "Événement", "Type", "Rabais", "Sous-total net",
                         "TVA %", "TVA", "Total CHF", "Statut", "Envoyé le", "Facture"])
             for r in rows:
                 w.writerow([r["number"], fdate(r["issue_date"]), fdate(r["valid_until"]), r["client_name"],
-                            r["event_name"], r["kind_label"], f"{r['subtotal']:.2f}", r["vat_rate"],
-                            f"{r['vat_amount']:.2f}", f"{r['total']:.2f}", QSTATUSES.get(r["status"]),
+                            r["event_name"], r["kind_label"], f"{r['discount_amount'] or 0:.2f}", f"{r['subtotal']:.2f}",
+                            r["vat_rate"], f"{r['vat_amount']:.2f}", f"{r['total']:.2f}", QSTATUSES.get(r["status"]),
                             r["sent_at"][:10], r["invoice_number"] or ""])
         else:
-            w.writerow(["Numéro", "Date", "Échéance", "Client", "Événement", "Type", "Sous-total",
+            w.writerow(["Numéro", "Date", "Échéance", "Client", "Événement", "Type", "Rabais", "Sous-total net",
                         "TVA %", "TVA", "Arrondi", "Total CHF", "Statut", "Envoyée le", "Payée le", "Référence"])
             for r in rows:
                 w.writerow([r["number"], fdate(r["issue_date"]), fdate(r["due_date"]), r["client_name"], r["event_name"],
-                            r["kind_label"], f"{r['subtotal']:.2f}", r["vat_rate"],
+                            r["kind_label"], f"{r['discount_amount'] or 0:.2f}", f"{r['subtotal']:.2f}", r["vat_rate"],
                             f"{r['vat_amount']:.2f}", f"{r['rounding']:.2f}", f"{r['total']:.2f}", STATUSES.get(r["status"]),
                             r["sent_at"][:10], fdate(r["paid_at"][:10]), r["reference"]])
         name = f"{'devis' if quote else 'factures'}_{year or 'tous'}.csv"
@@ -361,6 +368,15 @@ def invoice_form(iid=None, doc_type="invoice"):
                            preset_items=preset_items,
                            preset_client=preset_client, payment_days=int(s.get("payment_days") or 30),
                            Q=doc_type == "quote", validity_days=int(s.get("quote_validity_days") or 30))
+
+
+def compute_discount(gross, d_type, d_value):
+    """Montant du rabais (positif) : pourcentage du sous-total ou montant fixe, jamais plus que le sous-total."""
+    if d_type == "pct":
+        return round(gross * min(max(d_value, 0), 100) / 100, 2)
+    if d_type == "amount":
+        return round(min(max(d_value, 0), gross), 2)
+    return 0.0
 
 
 def _save_invoice(iid, s, doc_type="invoice"):
@@ -423,7 +439,17 @@ def _save_invoice(iid, s, doc_type="invoice"):
         return redirect(request.url)
 
     has_hours = any(l["kind"] == "hours" for l in lines)
-    subtotal = round(sum(l["amount"] for l in lines), 2)
+    gross = round(sum(l["amount"] for l in lines), 2)
+    d_type = f.get("discount_type") if f.get("discount_type") in ("pct", "amount") else ""
+    d_value = abs(_num(f.get("discount_value"))) if d_type else 0.0
+    if d_type == "pct" and d_value > 100:
+        flash("Le rabais ne peut pas dépasser 100 %.", "error")
+        return redirect(request.url)
+    d_amount = compute_discount(gross, d_type, d_value)
+    if not d_amount:
+        d_type, d_value = "", 0.0
+    d_label = (f.get("discount_label", "").strip() or "Rabais")[:60] if d_type else ""
+    subtotal = round(gross - d_amount, 2)
     show_vat = 1 if s.get("show_vat") == "1" else 0
     vat_rate = _num(s.get("vat_rate")) if show_vat else 0.0
     vat = round(subtotal * vat_rate / 100, 2)
@@ -440,6 +466,7 @@ def _save_invoice(iid, s, doc_type="invoice"):
                     event_place=f.get("event_place", "").strip() if has_event else "",
                     mode="hours" if has_hours else "flat", subtotal=subtotal, vat_rate=vat_rate, vat_amount=vat, rounding=rounding,
                     total=total, notes=f.get("notes", "").strip(), show_vat=show_vat,
+                    discount_type=d_type, discount_value=d_value, discount_label=d_label, discount_amount=d_amount,
                     show_terms=1 if checked("show_terms") else 0,
                     show_due=1 if checked("show_due") else 0,
                     show_timesheet=1 if (has_hours and checked("show_timesheet")) else 0,
@@ -624,7 +651,8 @@ def _copy_document(src, lines, s, doc_type, quote_id=None):
         number = db.new_invoice_number(conn, today.year, s, doc_type)
         cols = ["client_id", "client_snapshot", "event_name", "event_date", "event_place", "mode", "subtotal",
                 "vat_rate", "vat_amount", "rounding", "total", "notes",
-                "show_vat", "show_terms", "show_timesheet", "summary_mode", "show_due"]
+                "show_vat", "show_terms", "show_timesheet", "summary_mode", "show_due",
+                "discount_type", "discount_value", "discount_label", "discount_amount"]
         vals = [src[k] for k in cols]
         if doc_type == "quote":
             valid = (today + timedelta(days=int(s.get("quote_validity_days") or 30))).isoformat()

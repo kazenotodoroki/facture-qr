@@ -292,7 +292,9 @@ def generate_invoice_pdf(path, settings, client, invoice, lines):
     terms = (quote_terms(settings, invoice) if quote else payment_terms(settings, invoice)) if invoice.get("show_terms") else ""
     terms_l = _wrap(terms, "Inter-Regular", 8.5, left_w) if terms else []
     notes_l = _wrap(invoice.get("notes", ""), "Inter-Regular", 8.5, left_w)[:10] if invoice.get("notes") else []
-    n_tot = 1 + (1 if show_vat else 0) + (1 if invoice.get("rounding") else 0)
+    disc = invoice.get("discount_amount") or 0
+    n_tot = 1 + (1 if show_vat else 0) + (1 if invoice.get("rounding") else 0) + \
+        ((2 if show_vat else 1) if disc else 0)
     right_h = 8 + 15 * n_tot + 10 + 24
     left_h = 8 + (32 if hours_mode else 0) + 11 * len(terms_l) + (4 + 11 * len(notes_l) if notes_l else 0)
     block_h = max(right_h, left_h)
@@ -504,8 +506,19 @@ def generate_invoice_pdf(path, settings, client, invoice, lines):
     c.setFont("Inter-Regular", 9.5)
     c.setFillColor(INK)
     c.drawString(tx_l, y, "Sous-total")
-    c.drawRightString(X1, y, chf(invoice["subtotal"]))
+    c.drawRightString(X1, y, chf(round(invoice["subtotal"] + disc, 2)))
     y -= 15
+    if disc:
+        lab = invoice.get("discount_label") or "Rabais"
+        if invoice.get("discount_type") == "pct":
+            lab = f"{lab} {fpct(invoice['discount_value'])} %"
+        c.drawString(tx_l, y, _ellipsis(lab, "Inter-Regular", 9.5, 46 * mm))
+        c.drawRightString(X1, y, "\u2212" + chf(disc))
+        y -= 15
+        if show_vat:
+            c.drawString(tx_l, y, "Total hors TVA")
+            c.drawRightString(X1, y, chf(invoice["subtotal"]))
+            y -= 15
     if show_vat:
         c.drawString(tx_l, y, f"TVA {fpct(invoice['vat_rate'])} %")
         c.drawRightString(X1, y, chf(invoice["vat_amount"]))

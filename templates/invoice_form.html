@@ -76,8 +76,24 @@
         <span class="hint" style="margin:0">Montant = qté × jours × prix.</span></div>
     </div>
 
+    <div class="disc" id="disc">
+      <div class="sec-title disc-title">Rabais</div>
+      <div class="row" style="gap:12px;align-items:end">
+        <div class="seg">
+          <input type="radio" name="discount_type" id="d-0" value="" {{ 'checked' if not (inv and inv.discount_type) }}><label for="d-0">Aucun</label>
+          <input type="radio" name="discount_type" id="d-p" value="pct" {{ 'checked' if inv and inv.discount_type == 'pct' }}><label for="d-p">Pourcentage</label>
+          <input type="radio" name="discount_type" id="d-a" value="amount" {{ 'checked' if inv and inv.discount_type == 'amount' }}><label for="d-a">Montant CHF</label>
+        </div>
+        <div class="field d-on" style="margin:0;width:110px"><input type="text" inputmode="decimal" name="discount_value" id="d-val" value="{{ ('%g'|format(inv.discount_value)) if inv and inv.discount_type else '' }}" placeholder="0"></div>
+        <div class="field d-on" style="margin:0;flex:1;min-width:180px"><input type="text" name="discount_label" id="d-lab" maxlength="60" value="{{ inv.discount_label if inv and inv.discount_type else '' }}" placeholder="Libellé (ex. Rabais fidélité)"></div>
+      </div>
+      <div class="hint" id="d-hint"></div>
+    </div>
+
     <div class="totals">
       <div><span class="muted">Sous-total</span><span id="t-sub">0.00</span></div>
+      <div id="t-disc-row" class="hidden"><span class="muted" id="t-disc-lab">Rabais</span><span id="t-disc">0.00</span></div>
+      {% if S.show_vat == '1' %}<div id="t-net-row" class="hidden"><span class="muted">Total hors TVA</span><span id="t-net">0.00</span></div>{% endif %}
       {% if S.show_vat == '1' %}<div><span class="muted">TVA {{ S.vat_rate }} %</span><span id="t-vat">0.00</span></div>{% endif %}
       <div class="grand"><span>Total CHF</span><span id="t-tot">0.00</span></div>
     </div>
@@ -165,6 +181,28 @@ let RATES = [];
 const fmt = n => (Math.round(n*100)/100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
 const num = v => parseFloat(String(v||'').replace(/'/g,'').replace(',', '.')) || 0;
 const $ = s => document.querySelector(s);
+const DTYPE = () => (document.querySelector('[name=discount_type]:checked') || {}).value || '';
+const IS_NEW = {{ 'false' if inv else 'true' }};
+let CLIENT_DISC = null;
+function syncDisc(){
+  const on = DTYPE() !== '';
+  document.querySelectorAll('.d-on').forEach(e => e.classList.toggle('hidden', !on));
+  $('#d-val').placeholder = DTYPE() === 'amount' ? '0.00' : '0';
+  calc();
+}
+function applyClientDiscount(){
+  if (!CLIENT_DISC) return;
+  $('#d-p').checked = true; $('#d-val').value = String(CLIENT_DISC.pct);
+  $('#d-lab').value = CLIENT_DISC.label || 'Rabais';
+  syncDisc(); discHint();
+}
+function discHint(){
+  const h = $('#d-hint');
+  if (!CLIENT_DISC) { h.innerHTML = ''; return; }
+  const applied = DTYPE() === 'pct' && num($('#d-val').value) === CLIENT_DISC.pct;
+  h.innerHTML = applied ? `Rabais habituel du client appliqué (${String(CLIENT_DISC.pct).replace('.', ',')} %).`
+    : `Ce client a un rabais habituel de ${String(CLIENT_DISC.pct).replace('.', ',')} %. <a href="#" onclick="applyClientDiscount();return false">L'appliquer</a>`;
+}
 
 function rateOptions(sel){
   let o = RATES.map(r => `<option value="${r.label}" data-rate="${r.rate}" ${r.label===sel?'selected':''}>${r.label}</option>`).join('');
@@ -409,15 +447,24 @@ function calc(){
     const a = (qv === '' ? 1 : num(qv)) * (dv === '' ? 1 : num(dv)) * num(tr.querySelector('[name=f_price]').value);
     tr.querySelector('.amt').textContent = fmt(a); sub += a;
   });
-  const vat = Math.round(sub*VAT)/100;
-  let tot = sub + vat; if (ROUND5) tot = Math.round(tot*20)/20;
+  sub = Math.round(sub*100)/100;
+  const dt = DTYPE(), dv = Math.abs(num($('#d-val').value));
+  let disc = dt === 'pct' ? Math.round(sub*Math.min(dv,100))/100 : dt === 'amount' ? Math.min(dv, sub) : 0;
+  disc = Math.round(disc*100)/100;
+  const net = sub - disc;
+  const vat = Math.round(net*VAT)/100;
+  let tot = net + vat; if (ROUND5) tot = Math.round(tot*20)/20;
   $('#t-sub').textContent = fmt(sub); if ($('#t-vat')) $('#t-vat').textContent = fmt(vat); $('#t-tot').textContent = fmt(tot);
+  $('#t-disc-row').classList.toggle('hidden', !disc);
+  $('#t-disc-lab').textContent = ($('#d-lab').value.trim() || 'Rabais') + (dt === 'pct' && dv ? ` ${String(dv).replace('.', ',')} %` : '');
+  $('#t-disc').textContent = '−' + fmt(disc);
+  if ($('#t-net-row')) { $('#t-net-row').classList.toggle('hidden', !disc); $('#t-net').textContent = fmt(net); }
 }
 function syncUI(){
   $('#event-fields').classList.toggle('hidden', !$('#ev1').checked);
   const m = MODE(), hours = m !== 'flat', flat = m !== 'hours';
   $('#hours').classList.toggle('hidden', !hours); $('#flat').classList.toggle('hidden', !flat);
-  document.querySelectorAll('.sec-title').forEach(e => e.classList.toggle('hidden', m !== 'mixed'));
+  document.querySelectorAll('.sec-title:not(.disc-title)').forEach(e => e.classList.toggle('hidden', m !== 'mixed'));
   document.querySelectorAll('.hours-only').forEach(e => e.classList.toggle('hidden', !hours));
   // les champs masqués ne sont pas envoyés
   document.querySelectorAll('#hours input, #hours select').forEach(i => i.disabled = !hours);
@@ -428,11 +475,17 @@ function syncUI(){
 }
 async function loadClient(first){
   const id = $('#client').value;
-  if (!id) { RATES = []; $('#client-info').textContent=''; return; }
+  if (!id) { RATES = []; CLIENT_DISC = null; discHint(); $('#client-info').textContent=''; return; }
   const cc = CLIENTS.find(x => String(x.id) === String(id)); if (cc) $('#client-q').value = cc.name;
   const r = await fetch('/api/clients/' + id).then(r => r.json());
   RATES = r.rates;
   const c = r.client;
+  CLIENT_DISC = c.discount_pct > 0 ? {pct: c.discount_pct, label: c.discount_label} : null;
+  if (!first || IS_NEW) {          // changement de client ou nouveau document : rabais du client
+    if (CLIENT_DISC && c.discount_auto) applyClientDiscount();
+    else if (!first && DTYPE() === 'pct') { $('#d-0').checked = true; $('#d-val').value = ''; $('#d-lab').value = ''; syncDisc(); }
+  }
+  discHint();
   $('#client-info').innerHTML = [c.contact, [c.street, c.house_num].join(' ').trim(), [c.pcode, c.city].join(' ').trim(), c.email].filter(Boolean).join(' · ')
      + ` · <a href="/clients/${c.id}?next=${encodeURIComponent(location.pathname)}">modifier</a>`;
   $('#events').innerHTML = r.events.map(e => `<option value="${q(e)}">`).join('');
@@ -450,6 +503,12 @@ async function loadClient(first){
 }
 document.addEventListener('input', calc);
 document.querySelectorAll('[name=has_event],[name=mode]').forEach(r => r.onchange = syncUI);
+document.querySelectorAll('[name=discount_type]').forEach(r => r.onchange = () => {
+  if (DTYPE() && !$('#d-lab').value.trim()) $('#d-lab').value = (DTYPE() === 'pct' && CLIENT_DISC && CLIENT_DISC.label) || 'Rabais';
+  syncDisc(); discHint(); if (DTYPE()) $('#d-val').focus();
+});
+$('#d-val').addEventListener('input', discHint);
+syncDisc();
 // ---- recherche client ----
 const cq = $('#client-q'), cl = $('#client-list');
 let hi = 0, shown = [];

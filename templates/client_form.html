@@ -46,6 +46,16 @@
       {% for s in ['Montage','Régie','Démontage','Régie son','Régie lumière','Répétition'] %}<button type="button" class="chip" onclick="addRate('{{ s }}')">{{ s }}</button>{% endfor %}
     </div>
   </div>
+  <div class="card">
+    <h2>Rabais habituel</h2>
+    <div class="hint" style="margin:-8px 0 16px">Proposé sur les devis et factures de ce client. Il reste modifiable ou supprimable sur chaque document.</div>
+    <div class="grid" style="grid-template-columns:130px 1fr;gap:12px">
+      <div class="field"><label>Rabais %</label><input type="text" inputmode="decimal" name="discount_pct" value="{{ ('%g'|format(client.discount_pct)) if client and client.discount_pct else '' }}" placeholder="0"></div>
+      <div class="field"><label>Libellé sur le document</label><input type="text" name="discount_label" maxlength="60" value="{{ client.discount_label if client }}" placeholder="Rabais"></div>
+    </div>
+    <label class="opt" style="margin:0"><input type="checkbox" name="discount_auto" value="1" {{ 'checked' if not client or client.discount_auto }}>
+      <span><b>Appliquer automatiquement</b><br><span class="muted">Décoché : le rabais est seulement proposé (un clic pour l'ajouter) sur les nouveaux documents.</span></span></label>
+  </div>
 </div>
 <div class="row" style="margin-top:20px;justify-content:flex-end">
   <a class="btn ghost" href="{{ url_for('clients') }}">Annuler</a>
