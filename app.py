@@ -208,7 +208,8 @@ def api_client(cid):
 def _load_invoice(iid):
     with db.connect() as conn:
         inv = conn.execute("SELECT * FROM invoices WHERE id=?", (iid,)).fetchone() or abort(404)
-        lines = conn.execute("SELECT * FROM invoice_lines WHERE invoice_id=? ORDER BY position", (iid,)).fetchall()
+        lines = conn.execute("""SELECT l.*, COALESCE(it.category, '') AS category FROM invoice_lines l
+            LEFT JOIN items it ON it.id = l.item_id WHERE l.invoice_id=? ORDER BY l.position""", (iid,)).fetchall()
         client = conn.execute("SELECT * FROM clients WHERE id=?", (inv["client_id"],)).fetchone()
     snap = json.loads(inv["client_snapshot"] or "{}") or dict(client)
     return dict(inv), [dict(l) for l in lines], snap, dict(client)

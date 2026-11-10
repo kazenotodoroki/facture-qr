@@ -162,6 +162,8 @@ TS_ROW_H = 19       # hauteur d'une ligne du décompte horaire
 SEC_H = 22          # hauteur d'un intertitre (Heures / Forfaits et locations)
 ROW_H_COMPACT = 23  # variante compacte, utilisée seulement si elle évite une page supplémentaire
 SEC_H_COMPACT = 17
+ROW_H_SINGLE = 20   # lignes sans texte de détail (une seule ligne de texte)
+ROW_H_SINGLE_COMPACT = 17
 CONT_TOP = PAGE_H - 40 * mm
 
 
@@ -261,15 +263,22 @@ def generate_invoice_pdf(path, settings, client, invoice, lines):
     # ---- lignes affichées (hauteur fixe) ----
     rows = []   # (type, ligne, titre, détail, hauteur)
 
+    def period_text(a, b):
+        return fdate(a) if a == b else (f"du {fdate(a)[:5]} au {fdate(b)}" if a[:4] == b[:4] else f"du {fdate(a)} au {fdate(b)}")
+
+    # même période de location pour toutes les lignes : indiquée une seule fois (ou pas du tout si = date de l'événement)
+    periods = {(l["rent_from"], l.get("rent_to") or l["rent_from"]) if l.get("rent_from") else None for l in f_lines}
+    common_period = next(iter(periods)) if len(periods) == 1 and None not in periods else None
+
     def add_line(l):
         title = l["rate_label"] or l.get("description", "")
         detail = l.get("description", "") if l["rate_label"] else ""
         if l["kind"] == "hours" and not grouped and not annex and l.get("start_time") and l.get("end_time"):
             times = f"{l['start_time']} – {l['end_time']}"
             detail = f"{times} · {detail}" if detail else times
-        if l["kind"] == "flat" and l.get("rent_from"):
+        if l["kind"] == "flat" and l.get("rent_from") and not common_period:
             a, b = l["rent_from"], l.get("rent_to") or l["rent_from"]
-            period = fdate(a) if a == b else (f"du {fdate(a)[:5]} au {fdate(b)}" if a[:4] == b[:4] else f"du {fdate(a)} au {fdate(b)}")
+            period = period_text(a, b)
             detail = f"{period} · {detail}" if detail else period
         rows.append(("line", l, _ellipsis(title, "Inter-Medium", 9.5, desc_w),
                      _ellipsis(detail, "Inter-Regular", 8.5, desc_w) if detail else "", ROW_H))
@@ -281,10 +290,24 @@ def generate_invoice_pdf(path, settings, client, invoice, lines):
             l.setdefault("kind", "hours")
             add_line(l)
     if f_lines:
+        ev = invoice.get("event_date")
+        period = period_text(*common_period) if common_period and common_period != (ev, ev) else ""
         if mixed:
-            rows.append(("section", None, "Forfaits et locations", "", SEC_H))
-        for l in f_lines:
-            add_line(l)
+            rows.append(("section", None, "Forfaits et locations" + (f" · {period}" if period else ""), "", SEC_H))
+        elif period:
+            rows.append(("section", None, f"Location · {period}", "", SEC_H))
+        # matériel trié par catégorie d'inventaire (ordre alphabétique), lignes libres à la fin
+        cats = sorted({l.get("category") or "" for l in f_lines} - {""}, key=str.casefold)
+        if cats and len({l.get("category") or "" for l in f_lines}) > 1:
+            for cat in cats + [""]:
+                group = [l for l in f_lines if (l.get("category") or "") == cat]
+                if group:
+                    rows.append(("section", None, cat or "Autres", "", SEC_H))
+                    for l in group:
+                        add_line(l)
+        else:
+            for l in f_lines:
+                add_line(l)
 
     # ---- hauteur du bloc final (totaux + modalités + remarque) ----
     tx_l = X1 - 72 * mm
@@ -352,7 +375,7 @@ def generate_invoice_pdf(path, settings, client, invoice, lines):
 
     def draw_row(y, l, title, detail):
         """Ligne à hauteur fixe ROW_H, y = haut de la ligne."""
-        base = y - (11.5 if detail else 16.5) + (ROW_H - L["row"]) * (0.45 if detail else 0.5)
+        base = y - 11.5 + (ROW_H - L["row"]) * 0.45 if detail else y - L["row"] / 2 - 3
         c.setFillColor(INK)
         c.setFont("Inter-Regular", 9.5)
         if dated:
@@ -450,13 +473,16 @@ def generate_invoice_pdf(path, settings, client, invoice, lines):
     # ---------------- lignes, avec reports ----------------
     y = table_header(y)
     # mise en page compacte (toutes les lignes à la même hauteur réduite) si cela évite une page de plus
-    L = {"row": ROW_H, "sec": SEC_H}
+    # sans aucune ligne de détail (ex. matériel loué), les lignes n'ont qu'une ligne de texte : hauteur réduite
+    one_line = not any(r[3] for r in rows if r[0] == "line")
+    row_full, row_comp = (ROW_H_SINGLE, ROW_H_SINGLE_COMPACT) if one_line else (ROW_H, ROW_H_COMPACT)
+    L = {"row": row_full, "sec": SEC_H}
     n_line = sum(1 for r in rows if r[0] == "line")
     n_sec = len(rows) - n_line
-    full = n_line * ROW_H + n_sec * SEC_H
-    compact = n_line * ROW_H_COMPACT + n_sec * SEC_H_COMPACT
+    full = n_line * row_full + n_sec * SEC_H
+    compact = n_line * row_comp + n_sec * SEC_H_COMPACT
     if y - full < qr_bottom <= y - compact:
-        L = {"row": ROW_H_COMPACT, "sec": SEC_H_COMPACT}
+        L = {"row": row_comp, "sec": SEC_H_COMPACT}
     rows = [(k, l, t, d, L["row"] if k == "line" else L["sec"]) for k, l, t, d, _ in rows]
     running = 0.0
     n = len(rows)
@@ -490,7 +516,7 @@ def generate_invoice_pdf(path, settings, client, invoice, lines):
         carry_line(y - 12, "Report", running)
         y -= 20
         page_start = True
-        if mixed and section and kind != "section":
+        if section and kind != "section":
             y = draw_section(y, section, cont=True)
     if y < qr_bottom:  # les totaux ne tiennent pas avec le bulletin QR
         carry_line(y - 14, "À reporter", running)
